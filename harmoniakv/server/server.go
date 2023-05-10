@@ -2,8 +2,11 @@ package server
 
 import (
 	"distributed-learning-lab/HarmoniaKV/server/coordinator"
+	"distributed-learning-lab/harmoniakv/server/config"
+	"distributed-learning-lab/harmoniakv/server/storage"
 
-	"honnef.co/go/tools/config"
+	"github.com/coreos/etcd/pkg/transport"
+	"github.com/docker/docker/pkg/plugins/transport"
 )
 
 type AdminApi interface {
@@ -12,6 +15,7 @@ type AdminApi interface {
 }
 
 type UserApi interface {
+	Delete(key string) error
 	Put(key string, value string) error
 	Get(key string) (value string, err error)
 }
@@ -24,6 +28,8 @@ type KvServer interface {
 type server struct {
 	config      config.Config
 	coordinator coordinator.Coordinator
+	storage     storage.Storage
+	transer     transport.Transporter
 }
 
 func New() KvServer {
@@ -41,14 +47,24 @@ func (s *server) RemoveNode() {
 }
 
 func (h *server) Put(key string, value string) error {
-	panic("not implemented") // TODO: Implement
-	// 从coordinator中获取key存放在那些node上
-	nodes := h.coordinator.GetNodes(key, h.config.Replicas)
+	// 从coordinator中获取key 所在的node
 	// 建立和其他node的连接, 存取key
-	transport.SendRequest(nodes, req)
+	// 根据一致性策略判断返回是否符合要求
 
+	return nil
 }
 
 func (h *server) Get(key string) (value string, err error) {
-	panic("not implemented") // TODO: Implement
+	// 从coordinator中获取node
+	// 建立和其他node的连接, 存取key
+	// 根据一致性策略判断返回是否符合要求
+
+	// 返回值
+
+	return value, nil
+}
+
+func (h *server) Delete(key string) error {
+
+	return nil
 }
