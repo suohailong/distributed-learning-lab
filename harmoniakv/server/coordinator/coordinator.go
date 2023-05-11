@@ -24,11 +24,11 @@ type coordinator struct {
 	// 物理节点列表
 	nodes []*Node
 	// 物理节点id到物理节点的映射
-	nodeMap map[string]*Node
+	nodeMap map[string]int
 	// 虚拟节点列表
 	virtualNodes []uint32
 	// 虚拟id到物理节点的映射
-	vnodesMap map[uint32]*int
+	vnodesMap map[uint32]int
 	// 虚拟节点个数
 	vnodeLen int
 	// 物理节点个数
@@ -36,7 +36,7 @@ type coordinator struct {
 	// Implementation details
 	currentNode *Node
 	// 随机发送信息的node个数
-	randomSet int
+	randomNode int
 }
 
 func (d *coordinator) hash(key string) uint32 {
@@ -44,59 +44,70 @@ func (d *coordinator) hash(key string) uint32 {
 	return binary.BigEndian.Uint32(hash[:4])
 }
 
-func New(virtualNodes int) Coordinator {
+func New(vnodeNumber int, randomNode int) Coordinator {
 	return &coordinator{
 		// uint32 代表虚拟hash值
-		nodes: []uint32{},
-		//hash 对应的真实节点
-		nodesMap:     make(map[uint32]*Node),
-		virtualNodes: virtualNodes,
-		nodelength:   0,
+		nodes:        make([]*Node, 0),
+		nodeMap:      make(map[string]int),
+		virtualNodes: make([]uint32, 0),
+		vnodesMap:    make(map[uint32]int),
+		vnodeLen:     vnodeNumber,
+		pnodeLen:     0,
+		randomNode:   randomNode,
 	}
 }
 
 func (d *coordinator) nodeLen() int {
 	d.RLock()
 	defer d.RUnlock()
-	return d.nodelength
+	return d.pnodeLen
 }
 
 func (d *coordinator) AddNode(node *Node) {
 	d.Lock()
 	defer d.Unlock()
-	for i := 0; i < d.virtualNodes; i++ {
+	d.nodes = append(d.nodes, node)
+	index := len(d.nodes) - 1
+	d.nodeMap[node.GetID()] = index
+
+	for i := 0; i < d.vnodeLen; i++ {
 		virtualNodeId := node.GetID() + "#" + strconv.Itoa(i)
 		virtualNodeHash := d.hash(virtualNodeId)
-		d.nodesMap[virtualNodeHash] = node
-		d.nodes = append(d.nodes, virtualNodeHash)
+
+		d.vnodesMap[virtualNodeHash] = index
+		d.virtualNodes = append(d.virtualNodes, virtualNodeHash)
 	}
-	sort.Slice(d.nodes, func(i int, j int) bool {
-		return d.nodes[i] < d.nodes[j]
+	sort.Slice(d.virtualNodes, func(i int, j int) bool {
+		return d.virtualNodes[i] < d.virtualNodes[j]
 	})
-	d.nodelength++
+	d.pnodeLen++
 }
 
 func (d *coordinator) RemoveNode(node *Node) {
 	d.Lock()
 	defer d.Unlock()
 	deleteflag := 0
-	for i := 0; i < d.virtualNodes; i++ {
+	index := d.nodeMap[node.GetID()]
+
+	for i := 0; i < d.vnodeLen; i++ {
 		virtualNodeId := node.GetID() + "#" + strconv.Itoa(i)
 		hash := d.hash(virtualNodeId)
 		index := d.searchIndex(hash)
 		if index >= 0 {
-			d.nodes = append(d.nodes[:index], d.nodes[index+1:]...)
-			delete(d.nodesMap, hash)
+			d.virtualNodes = append(d.virtualNodes[:index], d.virtualNodes[index+1:]...)
+			delete(d.vnodesMap, hash)
 			deleteflag = 1
 		}
 	}
 	if deleteflag > 0 {
-		d.nodelength--
+		delete(d.nodeMap, node.GetID())
+		d.nodes = append(d.nodes[:index], d.nodes[index+1:]...)
+		d.pnodeLen--
 	}
 }
 
 func (d *coordinator) searchIndex(hash uint32) int {
-	for i, nodeHash := range d.nodes {
+	for i, nodeHash := range d.virtualNodes {
 		if hash == nodeHash {
 			return i
 		}
