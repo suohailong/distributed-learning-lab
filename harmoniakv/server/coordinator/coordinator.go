@@ -8,14 +8,16 @@ import (
 	"sync"
 )
 
-/********
+/*
+*******
 需要实现的功能:
 数据分片
 数据复制
 一致性
 不一致的解决方案
 失效处理
-*********/
+********
+*/
 type Coordinator interface {
 }
 
@@ -122,7 +124,8 @@ func (d *coordinator) GetNode(key string) *Node {
 
 	index := d.searchInsertIndex(keyHash)
 
-	return d.nodesMap[d.nodes[index%len(d.nodes)]]
+	pnodeIndex := d.vnodesMap[d.virtualNodes[index%len(d.virtualNodes)]]
+	return d.nodes[pnodeIndex]
 }
 
 func (d *coordinator) GetNodes(key string, count int) (nodeIDs []string) {
@@ -132,24 +135,23 @@ func (d *coordinator) GetNodes(key string, count int) (nodeIDs []string) {
 	index := d.searchInsertIndex(hash)
 
 	nodes := make(map[string]struct{})
-	for len(nodes) < count && len(nodes) < len(d.nodes) {
+	for len(nodes) < count && len(nodes) < len(d.virtualNodes) {
 		// 这里是顺着环再往下找,直到到了count个
 		// TODO: 这里还得判断一下尽量避免选出的节点都是不同的节点
-		node := d.nodesMap[d.nodes[index%len(d.nodes)]]
-		nodes[node.GetID()] = struct{}{}
+		node := d.vnodesMap[d.virtualNodes[index%len(d.virtualNodes)]]
+		nid := d.nodes[node].GetID()
+		nodes[nid] = struct{}{}
 		index++
 	}
-
 	for nodeID := range nodes {
 		nodeIDs = append(nodeIDs, nodeID)
 	}
 	return
-
 }
 
 func (d *coordinator) searchInsertIndex(hash uint32) int {
 	index := sort.Search(len(d.nodes), func(i int) bool {
-		return d.nodes[i] >= hash
+		return d.virtualNodes[i] >= hash
 	})
 
 	return index
