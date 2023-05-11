@@ -1,100 +1,114 @@
 package coordinator
 
 import (
+	"fmt"
 	"math/rand"
 	"time"
 )
 
+const (
+	ONLINE  = 1 // 0
+	OFFLINE = -1
+)
+
 type Gossip interface {
 	Start()
-	Stop()
-	Join(seedNodeAddress string)
 	UpdateState(key string, value interface{})
-	GetState(key string) (interface{}, bool)
-	RegisterEventHandler(handler EventHandler)
 }
 
-type EventHandler func(event Event)
-
-type Event struct {
-	Type   string
-	Key    string
-	Value  interface{}
-	NodeID string
-}
 type Node struct {
-	Id      string
+	ID      string
 	Address string
 	//TODO: 这里会一直增长吗
 	Counter   uint64
-	heartTime int64
+	HeartTime int64
+	State     int8
 }
 
-func (n *Node) Send(message interface{}) {
-
+func (n *Node) Send(message interface{}) {}
+func (n *Node) GetID() string {
+	return n.ID
 }
 
-type gossip struct {
-	// Implementation details
-	currentNode uint32
-	// node 关系列表
-	memberlist map[uint32]*Node
-	// node的排序列表
-	sortNodeList []*Node
-	// 随机发送信息的node个数
-	randomSet int
-
-	// heartThreshold
+type HeartBeat struct {
+	Source     *Node
+	Memberlist map[string]*Node
 }
 
-func (g *gossip) getRandomNode() []*Node {
+func (g *coordinator) getRandomNode() []*Node {
 	nodes := make([]*Node, 0)
+	rand.Seed(time.Now().UnixNano())
+	useIndex := make(map[string]struct{}, 0)
 	for i := 0; i < g.randomSet; i++ {
-		rand.Seed(time.Now().UnixNano())
 		min := 0
-		max := len(g.sortNodeList)
+		max := len(g.nodes) - 1
 		index := rand.Intn(max-min+1) + min
-		nodes = append(nodes, g.sortNodeList[index])
+		nodeID := g.nodesMap[g.nodes[index]].GetID()
+		for _, ok := useIndex[nodeID]; ok || nodeID == g.currentNode.GetID(); _, ok = useIndex[nodeID] {
+			index = rand.Intn(max-min+1) + min
+			nodeID = g.nodesMap[g.nodes[index]].GetID()
+		}
+		useIndex[nodeID] = struct{}{}
+		nodes = append(nodes, g.nodesMap[g.nodes[index]])
 	}
-
 	return nodes
 }
 
-func (g *gossip) Start() {
+func (g *coordinator) Start() {
 	// 更新heart, 发送本地信息
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		for {
 			<-ticker.C
-			node := g.memberlist[g.currentNode]
-			node.heartTime = time.Now().Unix()
+			// 更新heartBeat
+			node := g.currentNode
+			node.HeartTime = time.Now().Unix()
 			node.Counter++
 
+			// 检查成员列表中node的状态
+			scannedNodes := make(map[string]struct{}, 0)
+			for _, n := range g.nodesMap {
+				if _, ok := scannedNodes[n.GetID()]; ok {
+					continue
+				}
+				scannedNodes[n.GetID()] = struct{}{}
+				t := time.Unix(n.HeartTime, 0)
+				// 如果时间超过1m没有心跳，则认为机器已经失效
+				if time.Since(t) > 1*time.Minute {
+					n.State = OFFLINE
+				}
+			}
+
+			// 随机发送本地消息
 			nodes := g.getRandomNode()
 			for _, n := range nodes {
-				n.Send(g.memberlist)
+				n.Send(&HeartBeat{})
 			}
 		}
 	}()
 }
 
-func (g *gossip) Stop() {
-	panic("not implemented") // TODO: Implement
-}
+// 处理心跳
+func (g *coordinator) HandleHeartBeat(heartBeeat *HeartBeat) {
+	// 随机发送本地消息
+	nodes := g.getRandomNode()
+	for _, n := range nodes {
+		fmt.Printf("send heart beat to %d\n", n.GetID())
+		n.Send(heartBeeat)
+	}
+	// 更新本地
+	for _, n := range heartBeeat.Memberlist {
+		if me, ok := g.[n.Id]; ok {
+			// 如果本地的counter小于远程的counter，则更新本地的信息
+			if me.Counter <= n.Counter {
+				n.HeartTime = time.Now().Unix()
+				g.memberlist[n.Id] = n
+			}
+		} else {
+			// 如果本地没有，则添加
+			n.HeartTime = time.Now().Unix()
+			g.memberlist[n.Id] = n
+		}
+	}
 
-func (g *gossip) Join(seedNodeAddress string) {
-	panic("not implemented") // TODO: Implement
-}
-
-func (g *gossip) UpdateState(members interface{}) {
-	memberlist := members.(map[uint32]*Node)
-
-}
-
-func (g *gossip) GetState(key string) (interface{}, bool) {
-	panic("not implemented") // TODO: Implement
-}
-
-func (g *gossip) RegisterEventHandler(handler EventHandler) {
-	panic("not implemented") // TODO: Implement
 }
