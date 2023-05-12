@@ -3,6 +3,7 @@ package coordinator
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"sort"
 	"strconv"
 	"sync"
@@ -19,6 +20,11 @@ import (
 ********
 */
 type Coordinator interface {
+	AddNode(*Node)
+	RemoveNode(*Node)
+	GetNodes(string, int) []string
+	GetNode(string) *Node
+	NodeLen() int
 }
 
 type coordinator struct {
@@ -39,6 +45,8 @@ type coordinator struct {
 	currentNode *Node
 	// 随机发送信息的node个数
 	randomNode int
+	// 副本数
+	replica int
 }
 
 func (d *coordinator) hash(key string) uint32 {
@@ -46,7 +54,11 @@ func (d *coordinator) hash(key string) uint32 {
 	return binary.BigEndian.Uint32(hash[:4])
 }
 
-func New(vnodeNumber int, randomNode int) Coordinator {
+// param:
+// vnodeNumber: 虚拟节点个数
+// randomNode: gossip 随机发送信息的node个数
+// replicas: 副本的个数
+func New(vnodeNumber, randomNode, replicas int) Coordinator {
 	return &coordinator{
 		// uint32 代表虚拟hash值
 		nodes:        make([]*Node, 0),
@@ -59,7 +71,7 @@ func New(vnodeNumber int, randomNode int) Coordinator {
 	}
 }
 
-func (d *coordinator) nodeLen() int {
+func (d *coordinator) NodeLen() int {
 	d.RLock()
 	defer d.RUnlock()
 	return d.pnodeLen
@@ -89,7 +101,7 @@ func (d *coordinator) RemoveNode(node *Node) {
 	d.Lock()
 	defer d.Unlock()
 	deleteflag := 0
-	index := d.nodeMap[node.GetID()]
+	// index := d.nodeMap[node.GetID()]
 
 	for i := 0; i < d.vnodeLen; i++ {
 		virtualNodeId := node.GetID() + "#" + strconv.Itoa(i)
@@ -99,11 +111,14 @@ func (d *coordinator) RemoveNode(node *Node) {
 			d.virtualNodes = append(d.virtualNodes[:index], d.virtualNodes[index+1:]...)
 			delete(d.vnodesMap, hash)
 			deleteflag = 1
+			// log.Printf("remove virtual node %s", virtualNodeId)
 		}
 	}
 	if deleteflag > 0 {
 		delete(d.nodeMap, node.GetID())
-		d.nodes = append(d.nodes[:index], d.nodes[index+1:]...)
+		// TODO: 不能删除node中的节点,只能清除
+		// d.nodes = append(d.nodes[:index], d.nodes[index+1:]...)
+		fmt.Println(d.nodes, len(d.nodes))
 		d.pnodeLen--
 	}
 }
@@ -122,6 +137,10 @@ func (d *coordinator) GetNode(key string) *Node {
 	defer d.RUnlock()
 	keyHash := d.hash(key)
 
+	if len(d.virtualNodes) == 0 {
+		return nil
+	}
+
 	index := d.searchInsertIndex(keyHash)
 
 	pnodeIndex := d.vnodesMap[d.virtualNodes[index%len(d.virtualNodes)]]
@@ -132,16 +151,20 @@ func (d *coordinator) GetNodes(key string, count int) (nodeIDs []string) {
 	d.RLock()
 	defer d.RUnlock()
 	hash := d.hash(key)
-	index := d.searchInsertIndex(hash)
+	ringNodeIndex := d.searchInsertIndex(hash)
 
 	nodes := make(map[string]struct{})
 	for len(nodes) < count && len(nodes) < len(d.virtualNodes) {
 		// 这里是顺着环再往下找,直到到了count个
-		// TODO: 这里还得判断一下尽量避免选出的节点都是不同的节点
-		node := d.vnodesMap[d.virtualNodes[index%len(d.virtualNodes)]]
-		nid := d.nodes[node].GetID()
-		nodes[nid] = struct{}{}
-		index++
+		nodeHash := d.virtualNodes[ringNodeIndex%len(d.virtualNodes)]
+		nodeIndex := d.vnodesMap[nodeHash]
+		fmt.Println(len(d.nodes), len(d.virtualNodes), nodeIndex, ringNodeIndex%len(d.virtualNodes))
+		nodeID := d.nodes[nodeIndex].GetID()
+
+		if _, ok := nodes[nodeID]; !ok {
+			nodes[nodeID] = struct{}{}
+		}
+		ringNodeIndex++
 	}
 	for nodeID := range nodes {
 		nodeIDs = append(nodeIDs, nodeID)

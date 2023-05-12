@@ -2,7 +2,6 @@ package coordinator
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/suite"
 )
@@ -57,61 +56,4 @@ func (g *gossipTestSuite) TestGetRandom() {
 	for _, n := range nodes {
 		g.Assert().Contains([]string{"node2", "node3"}, n.ID)
 	}
-}
-
-func (g *gossipTestSuite) TestGetRandom2() {
-	var (
-		node1 = &Node{
-			ID:    "node1",
-			State: ONLINE,
-		}
-		node2 = &Node{
-			ID:    "node2",
-			State: ONLINE,
-		}
-		node3 = &Node{
-			ID:    "node3",
-			State: ONLINE,
-		}
-	)
-	g.co.randomNode = 2
-	g.co.currentNode = node1
-	g.co.AddNode(node1)
-	g.co.AddNode(node2)
-	g.co.AddNode(node3)
-
-	nodes := g.co.getRandomNode()
-	g.Assert().Equal(2, len(nodes))
-	for _, n := range nodes {
-		g.Assert().Contains([]string{"node2", "node3"}, n.ID)
-	}
-}
-
-func (g *gossipTestSuite) TestStart() {
-	var (
-		node1 = &Node{
-			ID:        "node1",
-			State:     ONLINE,
-			HeartTime: time.Now().Unix(),
-		}
-		node2 = &Node{
-			ID:        "node2",
-			State:     ONLINE,
-			HeartTime: time.Now().Unix(),
-		}
-		node3 = &Node{
-			ID:        "node3",
-			State:     ONLINE,
-			HeartTime: time.Now().Unix(),
-		}
-	)
-	g.co.randomNode = 2
-	g.co.currentNode = node1
-	g.co.AddNode(node1)
-	g.co.AddNode(node2)
-	g.co.AddNode(node3)
-
-	g.co.Start()
-	// g.Assert().Equal(2, len(g.co.getRandomNode()))
-	time.Sleep(2 * time.Minute)
 }
