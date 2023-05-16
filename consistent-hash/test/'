@@ -3,6 +3,7 @@ package coordinator
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"sort"
 	"strconv"
 	"sync"
@@ -28,9 +29,6 @@ type Coordinator interface {
 
 type coordinator struct {
 	sync.RWMutex
-	//当前node
-	currentNode *Node
-
 	vnodesMap map[uint32]*Node
 	// hash环
 	vnodes []uint32
@@ -67,6 +65,9 @@ func (c *coordinator) AddNode(node *Node) {
 func (c *coordinator) RemoveNode(node *Node) {
 	c.Lock()
 	defer c.Unlock()
+	for i, n := range c.pnodes {
+		fmt.Println(11111, i, n.GetID())
+	}
 	for i := 0; i < c.vCount; i++ {
 		vn := node.GetID() + "-" + strconv.Itoa(i)
 		targetHash := c.hash(vn)
@@ -77,11 +78,11 @@ func (c *coordinator) RemoveNode(node *Node) {
 			}
 		}
 	}
-	// 要求待搜索的切片已经按照升序排列
+
 	index := sort.Search(len(c.pnodes), func(i int) bool {
-		// 找到第一个大于等于node的节点
 		return c.pnodes[i].GetID() >= node.GetID()
 	})
+	fmt.Println(index)
 	c.pnodes = append(c.pnodes[:index], c.pnodes[index+1:]...)
 }
 
@@ -107,9 +108,6 @@ func (c *coordinator) GetReplicas(key string, count int) []string {
 func (c *coordinator) GetNode(key string) *Node {
 	c.RLock()
 	defer c.RUnlock()
-	if c.NodeLen() == 0 {
-		return nil
-	}
 	hash := c.hash(key)
 	index := sort.Search(len(c.vnodes), func(i int) bool {
 		return c.vnodes[i] >= hash

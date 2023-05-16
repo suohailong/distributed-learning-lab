@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"distributed-learning-lab/harmoniakv/server/coordinator"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -14,7 +15,13 @@ type CoordinatorTestSuite struct {
 }
 
 func (suite *CoordinatorTestSuite) SetupTest() {
+	fmt.Println("SetupTest", suite.T().Name())
 	suite.c = coordinator.New(100, 5, 3)
+}
+
+func (suite *CoordinatorTestSuite) TearDownTest() {
+	fmt.Println("DownTest", suite.T().Name())
+	suite.c = nil
 }
 
 func (suite *CoordinatorTestSuite) TestAddNode() {
@@ -44,14 +51,14 @@ func (suite *CoordinatorTestSuite) TestGetNode() {
 	suite.Assert().Contains([]*coordinator.Node{node1, node2}, suite.c.GetNode("some_key"))
 }
 
-func (suite *CoordinatorTestSuite) TestGetNodes() {
-	for i := 0; i < 9; i++ {
-		node := &coordinator.Node{ID: "node" + strconv.Itoa(i)}
+func (suite *CoordinatorTestSuite) TestGetReplicas() {
+	for i := 0; i < 10; i++ {
+		node := &coordinator.Node{ID: "node" + strconv.Itoa(i), State: coordinator.ONLINE}
 		suite.c.AddNode(node)
 	}
 
-	nodes1 := suite.c.GetNodes("some_key", 3)
-	nodes2 := suite.c.GetNodes("some_key", 3)
+	nodes1 := suite.c.GetReplicas("some_key", 3)
+	nodes2 := suite.c.GetReplicas("some_key", 3)
 
 	suite.Assert().Equal(len(nodes1), len(nodes2))
 	for _, n := range nodes2 {
@@ -59,8 +66,8 @@ func (suite *CoordinatorTestSuite) TestGetNodes() {
 	}
 	suite.T().Log(nodes1, nodes2)
 
-	suite.c.RemoveNode(&coordinator.Node{ID: "node1"})
-	nodes3 := suite.c.GetNodes("some_key", 3)
+	suite.c.RemoveNode(&coordinator.Node{ID: "node2"})
+	nodes3 := suite.c.GetReplicas("some_key", 3)
 	suite.T().Log(nodes1, nodes3)
 
 }
