@@ -1,4 +1,4 @@
-package coordinator
+package cluster
 
 import (
 	"crypto/sha256"
@@ -18,7 +18,10 @@ import (
 失效处理
 ********
 */
-type Coordinator interface {
+type Cluster interface {
+	Start()
+	HandleGossipMessage(*GossipStateMessage)
+
 	AddNode(*Node)
 	RemoveNode(*Node)
 	GetReplicas(string, int) []string
@@ -26,7 +29,7 @@ type Coordinator interface {
 	NodeLen() int
 }
 
-type coordinator struct {
+type defaultCluster struct {
 	sync.RWMutex
 	//当前node
 	currentNode *Node
@@ -44,7 +47,12 @@ type coordinator struct {
 	replica int
 }
 
-func (c *coordinator) AddNode(node *Node) {
+func (c *defaultCluster) SetCurrentNode(node *Node) {
+	c.Lock()
+	defer c.Unlock()
+}
+
+func (c *defaultCluster) AddNode(node *Node) {
 	c.Lock()
 	defer c.Unlock()
 	c.pnodes = append(c.pnodes, node)
@@ -64,7 +72,7 @@ func (c *coordinator) AddNode(node *Node) {
 	})
 }
 
-func (c *coordinator) RemoveNode(node *Node) {
+func (c *defaultCluster) RemoveNode(node *Node) {
 	c.Lock()
 	defer c.Unlock()
 	for i := 0; i < c.vCount; i++ {
@@ -85,7 +93,7 @@ func (c *coordinator) RemoveNode(node *Node) {
 	c.pnodes = append(c.pnodes[:index], c.pnodes[index+1:]...)
 }
 
-func (c *coordinator) GetReplicas(key string, count int) []string {
+func (c *defaultCluster) GetReplicas(key string, count int) []string {
 	c.RLock()
 	defer c.RUnlock()
 	hash := c.hash(key)
@@ -104,7 +112,7 @@ func (c *coordinator) GetReplicas(key string, count int) []string {
 	return targetNode
 }
 
-func (c *coordinator) GetNode(key string) *Node {
+func (c *defaultCluster) GetNode(key string) *Node {
 	c.RLock()
 	defer c.RUnlock()
 	if c.NodeLen() == 0 {
@@ -118,13 +126,13 @@ func (c *coordinator) GetNode(key string) *Node {
 	return c.vnodesMap[targetHash]
 }
 
-func (c *coordinator) NodeLen() int {
+func (c *defaultCluster) NodeLen() int {
 	c.RLock()
 	defer c.RUnlock()
 	return len(c.pnodes)
 }
 
-func (d *coordinator) hash(key string) uint32 {
+func (d *defaultCluster) hash(key string) uint32 {
 	hash := sha256.Sum256([]byte(key))
 	return binary.BigEndian.Uint32(hash[:4])
 }
@@ -133,9 +141,8 @@ func (d *coordinator) hash(key string) uint32 {
 // vnodeNumber: 虚拟节点个数
 // randomNode: gossip 随机发送信息的node个数
 // replicas: 副本的个数
-func New(vnodeCount, randomNode, replicas int) Coordinator {
-
-	return &coordinator{
+func New(vnodeCount, randomNode, replicas int, node *Node) Cluster {
+	co := &defaultCluster{
 		vnodesMap:  make(map[uint32]*Node),
 		vnodes:     make([]uint32, 0),
 		pnodes:     make([]*Node, 0),
@@ -143,4 +150,8 @@ func New(vnodeCount, randomNode, replicas int) Coordinator {
 		vCount:     vnodeCount,
 		replica:    replicas,
 	}
+
+	co.currentNode = node
+	co.AddNode(node)
+	return co
 }

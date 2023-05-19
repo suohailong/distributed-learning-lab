@@ -1,13 +1,17 @@
-package coordinator
+package cluster
 
 import (
-	"fmt"
 	"math/rand"
 	"sort"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 )
+
+// gossip负责传播的信息包括, 成员信息 token metadata   schema version information
+// 每个节点独自决定other node的up and down 不通过gossip 传播
+
+type NodeId string
 
 const (
 	ONLINE  = 1 // 0
@@ -26,38 +30,52 @@ type Node struct {
 	Counter   uint64
 	HeartTime int64
 	State     int8
+	SendTime  int64
+}
+
+func NewNode(id string, address string) *Node {
+	return &Node{
+		ID:        id,
+		Address:   address,
+		Counter:   0,
+		State:     ONLINE,
+		HeartTime: 0,
+		SendTime:  0,
+	}
 }
 
 func (n *Node) Send(message interface{}) {
-	fmt.Println("发送信息", message)
+	log.Infof("id:[%s], send heartbeat: <%s>", n.GetID(), message)
 }
 func (n *Node) GetID() string {
 	return n.ID
 }
 
-type HeartBeat struct {
+type GossipStateMessage struct {
 	Source     *Node
-	Memberlist map[string]*Node
+	NodeStates map[string]*Node
 }
 
-func (c *coordinator) getRandomNode() []*Node {
+func (c *defaultCluster) getRandomNode() []*Node {
 	nodes := make([]*Node, 0)
 	rand.Seed(time.Now().UnixNano())
 	useIndex := make(map[string]struct{}, 0)
-	for i := 0; i < c.randomNode; i++ {
+	for {
 		index := rand.Intn(len(c.pnodes))
 		nodeId := c.pnodes[index].GetID()
-		if _, ok := useIndex[nodeId]; ok {
+		if _, ok := useIndex[nodeId]; ok || c.currentNode.GetID() == nodeId {
 			continue
 		}
 		useIndex[nodeId] = struct{}{}
 		nodes = append(nodes, c.pnodes[index])
+		if len(nodes) == c.randomNode {
+			break
+		}
 	}
 	return nodes
 }
 
-func (c *coordinator) runGossip() {
-
+func (c *defaultCluster) runGossip() {
 	// 更新heartBeat
 	node := c.currentNode
 	node.HeartTime = time.Now().Unix()
@@ -82,46 +100,63 @@ func (c *coordinator) runGossip() {
 	// 随机发送本地消息
 	nodes := c.getRandomNode()
 	for _, n := range nodes {
-		n.Send(&HeartBeat{})
+		n.Send(&GossipStateMessage{})
+		n.SendTime = time.Now().Unix()
 		log.Debugf("send heart beat to node %s \n", n.GetID())
 	}
 }
 
-func (c *coordinator) Start() {
+func (c *defaultCluster) Start() {
 	// 更新heart, 发送本地信息
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		for {
 			<-ticker.C
+			c.runGossip()
 		}
 	}()
 }
 
 // 处理心跳
-func (c *coordinator) HandleHeartBeat(heartBeeat *HeartBeat) {
-	// 随机发送本地消息
-	nodes := g.getRandomNode()
-	for _, n := range nodes {
-		fmt.Printf("send heart beat to %s\n", n.GetID())
-		n.Send(heartBeeat)
-	}
+func (c *defaultCluster) HandleGossipMessage(gossipMessage *GossipStateMessage) {
+	// nodes := c.getRandomNode()
+	// for _, n := range nodes {
+	// 	n.Send(heartBeeat)
+	// 	n.SendTime = time.Now().Unix()
+	// }
 	// 更新本地
-	for _, n := range heartBeeat.Memberlist {
+	diff := make(map[string]*Node, 0)
+	for _, n := range gossipMessage.NodeStates {
 		index := sort.Search(len(c.pnodes), func(i int) bool {
 			return c.pnodes[i].GetID() >= n.GetID()
 		})
-		me := c.pnodes[index]
+
 		if index < len(c.pnodes) {
-			// 如果本地的counter小于远程的counter，则更新本地的信息
+			me := c.pnodes[index]
+			// 本地存在的,直接更新对应的counter
 			if me.Counter <= n.Counter {
 				me.HeartTime = time.Now().Unix()
 				me.Counter = n.Counter
+			} else {
+				diff[me.GetID()] = me
 			}
 		} else {
+			//本地不存在,添加记录到本地
 			n.HeartTime = time.Now().Unix()
 			c.AddNode(n)
 		}
-
 	}
 
+	for _, n := range c.pnodes {
+		if _, ok := gossipMessage.NodeStates[n.GetID()]; !ok {
+			diff[n.GetID()] = n
+		}
+	}
+	log.Printf("diff: %v\n", diff)
+
+	source := gossipMessage.Source
+	source.Send(&GossipStateMessage{
+		Source:     c.currentNode,
+		NodeStates: diff,
+	})
 }

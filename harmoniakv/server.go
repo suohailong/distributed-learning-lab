@@ -1,10 +1,10 @@
 package server
 
 import (
-	"distributed-learning-lab/harmoniakv/server/config"
-	"distributed-learning-lab/harmoniakv/server/coordinator"
-	"distributed-learning-lab/harmoniakv/server/storage"
-	"distributed-learning-lab/harmoniakv/server/transport"
+	"distributed-learning-lab/harmoniakv/config"
+	"distributed-learning-lab/harmoniakv/coordinator"
+	"distributed-learning-lab/harmoniakv/storage"
+	"distributed-learning-lab/harmoniakv/transport"
 )
 
 type AdminApi interface {
