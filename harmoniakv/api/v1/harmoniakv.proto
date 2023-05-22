@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+option go_package = "distributed-learning-lab/harmoniakv/api/v1";
+
+message Object {
+  bytes key = 1;
+  bytes value = 2;
+}
+
+message GetRequest {
+  bytes key = 1;
+}
+
+message GetResponse {
+  repeated Object objects = 1;
+}
+
+message PutRequest {
+  bytes key = 1;
+  bytes context = 2;
+  bytes value = 3;
+}
+
+message PutResponse {
+  bool success = 1;
+}
+
+service Harmoniakv {
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Put(PutRequest) returns (PutResponse);
+}
+
