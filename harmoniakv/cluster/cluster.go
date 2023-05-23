@@ -24,8 +24,8 @@ type Cluster interface {
 
 	AddNode(*Node)
 	RemoveNode(*Node)
-	GetReplicas(string, int) []string
-	GetNode(string) *Node
+	GetReplicas([]byte, int) []string
+	GetNode([]byte) *Node
 	NodeLen() int
 }
 
@@ -93,18 +93,19 @@ func (c *defaultCluster) RemoveNode(node *Node) {
 	c.pnodes = append(c.pnodes[:index], c.pnodes[index+1:]...)
 }
 
-func (c *defaultCluster) GetReplicas(key string, count int) []string {
+func (c *defaultCluster) GetReplicas(key []byte, count int) (target map[string]*Node) {
 	c.RLock()
 	defer c.RUnlock()
-	hash := c.hash(key)
-	targetNode := make([]string, 0)
+	hash := c.hash(string(key))
 	index := sort.Search(len(c.vnodes), func(i int) bool {
 		return c.vnodes[i] >= hash
 	})
 
 	for _, hash := range c.vnodes[index:] {
-		targetNode = append(targetNode, c.vnodesMap[hash].GetID())
-		if len(targetNode) == count {
+		target[c.vnodesMap[hash].GetID()] = c.vnodesMap[hash]
+		// TODO: 跳过相同的物理机器
+		// TODO: 跳过不可达的节点
+		if len(target) == count {
 			break
 		}
 	}
@@ -112,13 +113,13 @@ func (c *defaultCluster) GetReplicas(key string, count int) []string {
 	return targetNode
 }
 
-func (c *defaultCluster) GetNode(key string) *Node {
+func (c *defaultCluster) GetNode(key []byte) *Node {
 	c.RLock()
 	defer c.RUnlock()
 	if c.NodeLen() == 0 {
 		return nil
 	}
-	hash := c.hash(key)
+	hash := c.hash(string(key))
 	index := sort.Search(len(c.vnodes), func(i int) bool {
 		return c.vnodes[i] >= hash
 	})
