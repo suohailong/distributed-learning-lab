@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"distributed-learning-lab/harmoniakv/node"
 	"math/rand"
 	"sort"
 	"time"
@@ -13,57 +14,24 @@ import (
 
 type NodeId string
 
-const (
-	ONLINE  = 1 // 0
-	OFFLINE = -1
-)
-
 type Gossip interface {
 	Start()
 	UpdateState(key string, value interface{})
 }
 
-type Node struct {
-	ID      string
-	Address string
-	//TODO: 这里会一直增长吗
-	Counter   uint64
-	HeartTime int64
-	State     int8
-	SendTime  int64
-}
-
-func NewNode(id string, address string) *Node {
-	return &Node{
-		ID:        id,
-		Address:   address,
-		Counter:   0,
-		State:     ONLINE,
-		HeartTime: 0,
-		SendTime:  0,
-	}
-}
-
-func (n *Node) Send(message interface{}) {
-	log.Infof("id:[%s], send heartbeat: <%s>", n.GetID(), message)
-}
-func (n *Node) GetID() string {
-	return n.ID
-}
-
 type GossipStateMessage struct {
-	Source     *Node
-	NodeStates map[string]*Node
+	Source     *node.Node
+	NodeStates map[string]*node.Node
 }
 
-func (c *defaultCluster) getRandomNode() []*Node {
-	nodes := make([]*Node, 0)
+func (c *defaultCluster) getRandomNode() []*node.Node {
+	nodes := make([]*node.Node, 0)
 	rand.Seed(time.Now().UnixNano())
 	useIndex := make(map[string]struct{}, 0)
 	for {
 		index := rand.Intn(len(c.pnodes))
-		nodeId := c.pnodes[index].GetID()
-		if _, ok := useIndex[nodeId]; ok || c.currentNode.GetID() == nodeId {
+		nodeId := c.pnodes[index].GetId()
+		if _, ok := useIndex[nodeId]; ok || c.currentNode.GetId() == nodeId {
 			continue
 		}
 		useIndex[nodeId] = struct{}{}
@@ -77,32 +45,32 @@ func (c *defaultCluster) getRandomNode() []*Node {
 
 func (c *defaultCluster) runGossip() {
 	// 更新heartBeat
-	node := c.currentNode
-	node.HeartTime = time.Now().Unix()
-	node.Counter++
-	log.Debugf("update node %s, heartCount: %d\n", node.GetID(), node.Counter)
+	local := c.currentNode
+	local.HeartTime = time.Now().Unix()
+	local.Counter++
+	log.Debugf("update node %s, heartCount: %d\n", local.GetId(), local.Counter)
 
 	// 检查成员列表中node的状态
 	scannedNodes := make(map[string]struct{}, 0)
 	for _, n := range c.pnodes {
-		if _, ok := scannedNodes[n.GetID()]; ok {
+		if _, ok := scannedNodes[n.GetId()]; ok {
 			continue
 		}
-		scannedNodes[n.GetID()] = struct{}{}
+		scannedNodes[n.GetId()] = struct{}{}
 		t := time.Unix(n.HeartTime, 0)
 		// 如果时间超过1m没有心跳，则认为机器已经失效
 		if time.Since(t) > 1*time.Minute {
-			n.State = OFFLINE
-			log.Debugf("update node %s, state: %d\n", n.GetID(), n.State)
+			n.State = node.OFFLINE
+			log.Debugf("update node %s, state: %d\n", n.GetId(), n.State)
 		}
 	}
 
 	// 随机发送本地消息
 	nodes := c.getRandomNode()
 	for _, n := range nodes {
-		n.Send(&GossipStateMessage{})
+		// n.Send(&GossipStateMessage{})
 		n.SendTime = time.Now().Unix()
-		log.Debugf("send heart beat to node %s \n", n.GetID())
+		log.Debugf("send heart beat to node %s \n", n.GetId())
 	}
 }
 
@@ -125,10 +93,10 @@ func (c *defaultCluster) HandleGossipMessage(gossipMessage *GossipStateMessage) 
 	// 	n.SendTime = time.Now().Unix()
 	// }
 	// 更新本地
-	diff := make(map[string]*Node, 0)
+	diff := make(map[string]*node.Node, 0)
 	for _, n := range gossipMessage.NodeStates {
 		index := sort.Search(len(c.pnodes), func(i int) bool {
-			return c.pnodes[i].GetID() >= n.GetID()
+			return c.pnodes[i].GetId() >= n.GetId()
 		})
 
 		if index < len(c.pnodes) {
@@ -138,7 +106,7 @@ func (c *defaultCluster) HandleGossipMessage(gossipMessage *GossipStateMessage) 
 				me.HeartTime = time.Now().Unix()
 				me.Counter = n.Counter
 			} else {
-				diff[me.GetID()] = me
+				diff[me.GetId()] = me
 			}
 		} else {
 			//本地不存在,添加记录到本地
@@ -148,15 +116,16 @@ func (c *defaultCluster) HandleGossipMessage(gossipMessage *GossipStateMessage) 
 	}
 
 	for _, n := range c.pnodes {
-		if _, ok := gossipMessage.NodeStates[n.GetID()]; !ok {
-			diff[n.GetID()] = n
+		if _, ok := gossipMessage.NodeStates[n.GetId()]; !ok {
+			diff[n.GetId()] = n
 		}
 	}
 	log.Printf("diff: %v\n", diff)
 
-	source := gossipMessage.Source
-	source.Send(&GossipStateMessage{
-		Source:     c.currentNode,
-		NodeStates: diff,
-	})
+	// TODO
+	// source := gossipMessage.Source
+	// source.Send(&GossipStateMessage{
+	// 	Source:     c.currentNode,
+	// 	NodeStates: diff,
+	// })
 }

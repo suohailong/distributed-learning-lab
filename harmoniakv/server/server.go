@@ -3,10 +3,7 @@ package server
 import (
 	"context"
 	v1 "distributed-learning-lab/harmoniakv/api/v1"
-	"distributed-learning-lab/harmoniakv/config"
 	"distributed-learning-lab/harmoniakv/coordinator"
-	"distributed-learning-lab/harmoniakv/storage"
-	"distributed-learning-lab/harmoniakv/transport"
 
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/grpc/metadata"
@@ -18,10 +15,7 @@ type KvServer interface {
 
 type server struct {
 	v1.UnimplementedHarmoniakvServer
-	config      config.Config
 	coordinator coordinator.Coordinator
-	storage     storage.Storage
-	transer     transport.Transporter
 }
 
 func (s *server) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
@@ -33,12 +27,14 @@ func (s *server) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, 
 }
 
 func (s *server) Put(ctx context.Context, req *v1.PutRequest) (*v1.PutResponse, error) {
+	// TODO
 	// s.coordinator.HandlePut(req.)
 	var meta *coordinator.Metadata
 	pairs, ok := metadata.FromIncomingContext(ctx)
 	if ok {
 		mapstructure.Decode(pairs, meta)
 	}
+	return &v1.PutResponse{}, nil
 }
 
 func New() KvServer {

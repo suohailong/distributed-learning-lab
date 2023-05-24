@@ -4,6 +4,8 @@ import (
 	v1 "distributed-learning-lab/harmoniakv/api/v1"
 	"distributed-learning-lab/harmoniakv/cluster"
 	"distributed-learning-lab/harmoniakv/config"
+	"distributed-learning-lab/harmoniakv/node"
+	"distributed-learning-lab/harmoniakv/transport"
 )
 
 type Metadata struct{}
@@ -17,13 +19,18 @@ type defaultCoordinator struct {
 	cluster cluster.Cluster
 }
 
+func (d *defaultCoordinator) isInPrimaryList(replicas map[string]*node.Node, nodeId string) bool {
+	if _, ok := replicas[config.LocalId()]; !ok {
+		return true
+	}
+	return false
+}
+
 func (d *defaultCoordinator) HandleGet(key []byte) ([]*v1.Object, error) {
 	//1. 协调节点从该key的首选列表中排名最高的N个可达节点请求该key的所有数据版本
 	nodes := d.cluster.GetReplicas(key, config.Replicas())
 	//2. 判断自己是否是该key的协调节点, 不是则转发请求
-	if n, ok := nodes[config.LocalId()]; !ok {
-		d.transport.Send()
-	}
+	transport.Send(nodes, key)
 	//3. 等待R个节点返回响应. 如果协调节点收到的响应少于R个,它将重试,直到收到R个响应
 	//4. 如果协调节点最终搜集到多个数据版本,它将返回它认为因果无关的版本
 }

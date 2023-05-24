@@ -1,8 +1,8 @@
 package consistenthash_test
 
 import (
-	hash "distributed-learning-lab/go-consistent-hash"
 	"distributed-learning-lab/go-consistent-hash/test/node"
+	hash "distributed-learning-lab/hash"
 	"fmt"
 	"strconv"
 	"testing"
