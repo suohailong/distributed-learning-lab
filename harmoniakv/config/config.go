@@ -7,7 +7,8 @@ var onece sync.Once
 var mutex sync.Mutex
 
 type config struct {
-	Replicas uint8
+	Replicas    uint32
+	ReadConcern uint32
 }
 
 func init() {
@@ -18,6 +19,10 @@ func init() {
 			Replicas: 1,
 		}
 	})
+}
+
+func ReadConcern() int {
+	return int(defaultConfig.ReadConcern)
 }
 
 func Replicas() int {

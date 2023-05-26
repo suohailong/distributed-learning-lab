@@ -19,17 +19,16 @@ import (
 失效处理
 ********
 */
+
 type Cluster interface {
 	Start()
 	HandleGossipMessage(*GossipStateMessage)
 
 	AddNode(*node.Node)
 	RemoveNode(*node.Node)
-	GetReplicas([]byte, int) map[string]struct{}
+	GetReplicas([]byte, int) []*node.Node
 	GetNode([]byte) *node.Node
 	NodeLen() int
-
-	GetNodeByID(id string)
 }
 
 type defaultCluster struct {
@@ -48,11 +47,6 @@ type defaultCluster struct {
 	vCount int
 	// 副本数
 	replica int
-}
-
-func (c *defaultCluster) SetCurrentNode(node *node.Node) {
-	c.Lock()
-	defer c.Unlock()
 }
 
 func (c *defaultCluster) AddNode(n *node.Node) {
@@ -96,7 +90,7 @@ func (c *defaultCluster) RemoveNode(n *node.Node) {
 	c.pnodes = append(c.pnodes[:index], c.pnodes[index+1:]...)
 }
 
-func (c *defaultCluster) GetReplicas(key []byte, count int) (target map[string]struct{}) {
+func (c *defaultCluster) GetReplicas(key []byte, count int) (target []*node.Node) {
 	c.RLock()
 	defer c.RUnlock()
 	hash := c.hash(string(key))
@@ -105,7 +99,7 @@ func (c *defaultCluster) GetReplicas(key []byte, count int) (target map[string]s
 	})
 
 	for _, hash := range c.vnodes[index:] {
-		target[c.vnodesMap[hash].GetId()] = struct{}{}
+		target = append(target, c.vnodesMap[hash])
 		// TODO: 跳过相同的物理机器
 		// TODO: 跳过不可达的节点
 		if len(target) == count {
@@ -138,10 +132,6 @@ func (c *defaultCluster) NodeLen() int {
 func (d *defaultCluster) hash(key string) uint32 {
 	hash := sha256.Sum256([]byte(key))
 	return binary.BigEndian.Uint32(hash[:4])
-}
-
-func (d *defaultCluster) GetNodeByID(id string) {
-
 }
 
 // param:

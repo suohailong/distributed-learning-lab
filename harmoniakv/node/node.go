@@ -2,6 +2,8 @@ package node
 
 import (
 	"distributed-learning-lab/harmoniakv/node/storage"
+
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -42,6 +44,8 @@ func (n *Node) GetId() string {
 	return n.ID
 }
 
-func (n *Node) HandleMessage() {
-
+//go:noinline
+func (n *Node) HandleMsg(msg interface{}, cb func(interface{})) {
+	logrus.Debugf("handle local msg: %v", msg)
+	cb(msg)
 }

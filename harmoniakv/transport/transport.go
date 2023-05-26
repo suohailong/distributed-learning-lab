@@ -1,9 +1,12 @@
 package transport
 
 import (
-	"distributed-learning-lab/harmoniakv/cluster"
 	"distributed-learning-lab/harmoniakv/config"
+	"distributed-learning-lab/harmoniakv/node"
 	"sync"
+
+	"github.com/panjf2000/ants/v2"
+	"github.com/sirupsen/logrus"
 )
 
 var tran *defaultTransporter
@@ -35,19 +38,24 @@ func collectResp(result interface{}) {
 	tran.ret <- struct{}{}
 }
 
-func Send(nodes map[string]struct{}, key []byte) {
+func (d *defaultTransporter) send(nodes []*node.Node, key []byte) {
 	message := "aa"
-	for id := range nodes {
-		n := cluster.GetNodeByID(id)
-		if id == config.LocalId() {
-			n.HandleMsg(message, collectResp)
-			continue
-		}
-		writeRemote(id, message, collectResp)
+	for _, peer := range nodes {
+		n := peer
+		_ = ants.Submit(
+			func() {
+				if n.GetId() == config.LocalId() {
+					logrus.Debugf("local node: %v", n)
+					n.HandleMsg(message, collectResp)
+					// continue
+					return
+				}
+				d.writeRemote(n, message, collectResp)
+			})
 	}
 }
 
-func WaitResp(n int) []interface{} {
+func (d *defaultTransporter) waitResp(n int) []interface{} {
 	resps := []interface{}{}
 	i := 0
 	for resp := range tran.ret {
@@ -55,8 +63,27 @@ func WaitResp(n int) []interface{} {
 			break
 		}
 		resps = append(resps, resp)
+		i++
 	}
+	logrus.Debugf("wait resp: %v", resps)
 	return resps
 }
 
-func writeRemote(string, interface{}, callback) {}
+func Send(nodes []*node.Node, key []byte) {
+	tran.send(nodes, key)
+}
+
+func WaitResp(n int) []interface{} {
+	//TODO: 在读取响应返回给调用方之后，状态机会等待一小段时间以接收任何未完成的响应。如果任何响应中返回了过期的版本，协调器将使用最新版本更新这些节点。这个过程被称为读修复（read repair），因为它在一个机会时机修复了错过最新更新的副本，并减轻了反熵协议的负担。
+	return tran.waitResp(n)
+}
+
+func (d *defaultTransporter) writeRemote(n *node.Node, message interface{}, cb callback) {
+	// 这里要重试
+
+	// 获取client
+	// 发送消息
+	logrus.Debugf("send messge: [%v] to target: %v", message, n)
+
+	cb(n.GetId())
+}
