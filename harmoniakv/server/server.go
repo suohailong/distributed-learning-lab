@@ -4,9 +4,7 @@ import (
 	"context"
 	v1 "distributed-learning-lab/harmoniakv/api/v1"
 	"distributed-learning-lab/harmoniakv/coordinator"
-
-	"github.com/mitchellh/mapstructure"
-	"google.golang.org/grpc/metadata"
+	"distributed-learning-lab/harmoniakv/node/version"
 )
 
 type KvServer interface {
@@ -29,11 +27,20 @@ func (s *server) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, 
 func (s *server) Put(ctx context.Context, req *v1.PutRequest) (*v1.PutResponse, error) {
 	// TODO
 	// s.coordinator.HandlePut(req.)
-	var meta *coordinator.Metadata
-	pairs, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		mapstructure.Decode(pairs, meta)
+	// var meta *coordinator.Metadata
+	// pairs, ok := metadata.FromIncomingContext(ctx)
+	// if ok {
+	// 	mapstructure.Decode(pairs, meta)
+	// }
+	value := &version.Value{
+		KeyValue: &v1.Object{
+			Key:   req.Key,
+			Value: req.Value,
+		},
+		VersionVector: &version.Vector{},
 	}
+
+	s.coordinator.HandlePut(req.Key, value)
 	return &v1.PutResponse{}, nil
 }
 

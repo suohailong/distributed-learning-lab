@@ -2,6 +2,7 @@ package node
 
 import (
 	"distributed-learning-lab/harmoniakv/node/storage"
+	"distributed-learning-lab/harmoniakv/node/version"
 
 	"github.com/sirupsen/logrus"
 )
@@ -29,6 +30,17 @@ type Node struct {
 	store storage.Storage
 }
 
+const (
+	GET = 1
+	PUT = 2
+)
+
+type KvCommand struct {
+	Command uint32
+	Key     []byte
+	Value   version.Value
+}
+
 func NewNode(id string, address string) *Node {
 	return &Node{
 		ID:        id,
@@ -45,7 +57,21 @@ func (n *Node) GetId() string {
 }
 
 //go:noinline
-func (n *Node) HandleMsg(msg interface{}, cb func(interface{})) {
-	logrus.Debugf("handle local msg: %v", msg)
-	cb(msg)
+func (n *Node) HandleMsg(cmd *KvCommand, cb func(interface{})) {
+	logrus.Debugf("handle local msg: %v", cmd)
+	if cmd.Command == GET {
+		// 3. 从本地数据库读取该key的所有版本
+
+		// 4. 将所有版本返回给协调节点
+		cb(cmd)
+		return
+	} else if cmd.Command == PUT {
+		// 2. 生成该key对应的版本向量, 写入本地数据库
+		cmd.Value.VersionVector.Increment(n.ID)
+		// 3. 从本地数据库读取该key的所有版本
+		n.store.Put(cmd.Key, cmd.Value)
+		// 4. 将所有版本返回给协调节点
+		cb(cmd)
+		return
+	}
 }

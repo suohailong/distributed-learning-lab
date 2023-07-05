@@ -5,6 +5,7 @@ option go_package = "distributed-learning-lab/harmoniakv/api/v1";
 message Object {
   bytes key = 1;
   bytes value = 2;
+  map <string, uint64> vector = 3;
 }
 
 message GetRequest {
@@ -17,8 +18,8 @@ message GetResponse {
 
 message PutRequest {
   bytes key = 1;
-  bytes context = 2;
-  bytes value = 3;
+  bytes value = 2;
+  map <string, uint64> vector = 3;
 }
 
 message PutResponse {

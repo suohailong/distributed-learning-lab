@@ -27,7 +27,6 @@ func init() {
 type callback func(resp interface{})
 
 type Transporter interface {
-	SendGet(nodes map[string]struct{})
 }
 
 type defaultTransporter struct {
@@ -38,19 +37,18 @@ func collectResp(result interface{}) {
 	tran.ret <- struct{}{}
 }
 
-func (d *defaultTransporter) send(nodes []*node.Node, key []byte) {
-	message := "aa"
+func (d *defaultTransporter) send(nodes []*node.Node, cmd *node.KvCommand) {
 	for _, peer := range nodes {
 		n := peer
 		_ = ants.Submit(
 			func() {
 				if n.GetId() == config.LocalId() {
 					logrus.Debugf("local node: %v", n)
-					n.HandleMsg(message, collectResp)
+					n.HandleMsg(cmd, collectResp)
 					// continue
 					return
 				}
-				d.writeRemote(n, message, collectResp)
+				d.writeRemote(n, cmd, collectResp)
 			})
 	}
 }
@@ -69,8 +67,8 @@ func (d *defaultTransporter) waitResp(n int) []interface{} {
 	return resps
 }
 
-func Send(nodes []*node.Node, key []byte) {
-	tran.send(nodes, key)
+func Send(nodes []*node.Node, req *node.KvCommand) {
+	tran.send(nodes, req)
 }
 
 func WaitResp(n int) []interface{} {

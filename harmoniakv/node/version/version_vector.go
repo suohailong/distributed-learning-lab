@@ -13,7 +13,13 @@ func NewVector(versions map[string]uint64) *Vector {
 	}
 }
 
-func (ve *Vector) Increment(nodeId string) {}
+func (ve *Vector) Increment(nodeId string) {
+	if _, ok := ve.Versions[nodeId]; ok {
+		ve.Versions[nodeId]++
+	} else {
+		ve.Versions[nodeId] = 1
+	}
+}
 
 func (ve *Vector) Compare(in *Vector) {
 
