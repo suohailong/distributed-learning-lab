@@ -53,7 +53,7 @@ func (g *transTestSuite) TestTransport() {
 		pool: pool,
 	}
 	cmd := &node.KvCommand{
-		Command: node.GET,
+		Command: node.PUT,
 		Key:     []byte("key"),
 		Value: version.Value{
 			Key:   []byte("key"),
