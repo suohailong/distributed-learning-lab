@@ -19,7 +19,7 @@ func init() {
 		mutex.Lock()
 		defer mutex.Unlock()
 		tran = &defaultTransporter{
-			ret: make(chan struct{}, 100),
+			ret: make(chan interface{}, 100),
 		}
 	})
 }
@@ -30,27 +30,34 @@ type Transporter interface {
 }
 
 type defaultTransporter struct {
-	ret chan struct{}
+	ret  chan interface{}
+	pool *ants.Pool
 }
 
-func collectResp(result interface{}) {
-	tran.ret <- struct{}{}
-}
-
-func (d *defaultTransporter) send(nodes []*node.Node, cmd *node.KvCommand) {
-	for _, peer := range nodes {
-		n := peer
-		_ = ants.Submit(
-			func() {
-				if n.GetId() == config.LocalId() {
-					logrus.Debugf("local node: %v", n)
-					n.HandleMsg(cmd, collectResp)
-					// continue
-					return
-				}
-				d.writeRemote(n, cmd, collectResp)
-			})
+func collectResp(result interface{}, err error) {
+	if err != nil {
+		tran.ret <- result
+	} else {
+		tran.ret <- err
 	}
+}
+
+// TODO: 这里也不知道返回什么
+func (d *defaultTransporter) send(n *node.Node, cmd *node.KvCommand) (interface{}, error) {
+	if n.GetId() == config.LocalId() {
+		logrus.Debugf("local node: %v", n)
+		return n.HandleCommand(cmd)
+	}
+	// TODO:  传递消息到其他节点
+	return d.writeRemote(n, cmd)
+}
+
+func (d *defaultTransporter) asend(n *node.Node, cmd *node.KvCommand) error {
+	return d.pool.Submit(
+		func() {
+			result, err := d.send(n, cmd)
+			collectResp(result, err)
+		})
 }
 
 func (d *defaultTransporter) waitResp(n int) []interface{} {
@@ -67,8 +74,12 @@ func (d *defaultTransporter) waitResp(n int) []interface{} {
 	return resps
 }
 
-func Send(nodes []*node.Node, req *node.KvCommand) {
-	tran.send(nodes, req)
+func Send(node *node.Node, req *node.KvCommand) (interface{}, error) {
+	return tran.send(node, req)
+}
+
+func AsyncSend(node *node.Node, req *node.KvCommand) {
+	tran.asend(node, req)
 }
 
 func WaitResp(n int) []interface{} {
@@ -76,12 +87,13 @@ func WaitResp(n int) []interface{} {
 	return tran.waitResp(n)
 }
 
-func (d *defaultTransporter) writeRemote(n *node.Node, message interface{}, cb callback) {
+// TODO: 这里也不知道返回什么
+func (d *defaultTransporter) writeRemote(n *node.Node, message interface{}) (interface{}, error) {
 	// 这里要重试
 
 	// 获取client
 	// 发送消息
 	logrus.Debugf("send messge: [%v] to target: %v", message, n)
 
-	cb(n.GetId())
+	return nil, nil
 }

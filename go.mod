@@ -5,7 +5,6 @@ go 1.20
 require (
 	github.com/cch123/supermonkey v1.0.1
 	github.com/golang/protobuf v1.5.3
-	github.com/mitchellh/mapstructure v1.5.0
 	github.com/panjf2000/ants/v2 v2.7.4
 	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.2

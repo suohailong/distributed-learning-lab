@@ -57,21 +57,23 @@ func (n *Node) GetId() string {
 }
 
 //go:noinline
-func (n *Node) HandleMsg(cmd *KvCommand, cb func(interface{})) {
+// TODO: 这里返回值暂且不知道填什么
+func (n *Node) HandleCommand(cmd *KvCommand) (interface{}, error) {
 	logrus.Debugf("handle local msg: %v", cmd)
 	if cmd.Command == GET {
 		// 3. 从本地数据库读取该key的所有版本
-
+		// n.store.Get(cmd.Key)
+		logrus.Debugf("get key: %s", cmd.Key)
 		// 4. 将所有版本返回给协调节点
-		cb(cmd)
-		return
+		return nil, nil
 	} else if cmd.Command == PUT {
+		logrus.Debugf("put key: %s, value: %v", cmd.Key, cmd.Value)
 		// 2. 生成该key对应的版本向量, 写入本地数据库
-		cmd.Value.VersionVector.Increment(n.ID)
+		// cmd.Value.VersionVector.Increment(n.ID)
 		// 3. 从本地数据库读取该key的所有版本
-		n.store.Put(cmd.Key, cmd.Value)
+		// n.store.Put(cmd.Key, cmd.Value)
 		// 4. 将所有版本返回给协调节点
-		cb(cmd)
-		return
+		return nil, nil
 	}
+	return nil, nil
 }

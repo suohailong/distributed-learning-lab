@@ -1,7 +1,5 @@
 package version
 
-import v1 "distributed-learning-lab/harmoniakv/api/v1"
-
 // 版本向量
 type Vector struct {
 	Versions map[string]uint64
@@ -27,10 +25,13 @@ func (ve *Vector) Compare(in *Vector) {
 
 // 版本向量值
 type Value struct {
-	KeyValue      *v1.Object
+	Key           []byte
+	Value         []byte
 	VersionVector *Vector
 }
 
 func (va *Value) Equal() {}
 
-func (va *Value) HasCode() int {}
+func (va *Value) HasCode() int {
+	return 0
+}
