@@ -68,21 +68,38 @@ func (d *defaultCoordinator) HandlePut(key []byte, value *version.Value) error {
 	if index < 0 {
 		// 选择第一转发请求
 		primaryNode := nodes[0]
-		transport.Send(primaryNode, &node.KvCommand{})
-
+		_, err := transport.Send(primaryNode, &node.KvCommand{})
+		if err != nil {
+			logrus.Errorf("send to primary node error: %v", err)
+			return err
+		}
 	}
 	// 2. 生成该key对应的版本向量, 写入本地数据库
-	transport.Send(nodes[index], &node.KvCommand{})
+	acceptValue, err := transport.Send(nodes[index], &node.KvCommand{
+		Command: node.PUT,
+		Key:     key,
+		Value:   *value,
+	})
+	if err != nil {
+		logrus.Errorf("send to primary node error: %v", err)
+		return err
+	}
 
 	otherNodes := []*node.Node{}
 	otherNodes = append(otherNodes, nodes[:index]...)
 	otherNodes = append(otherNodes, nodes[index+1:]...)
 	// 3. 发送给其他N-1个可达的副本. 不可达的副本采用Hinted Handoff的方式实现副本一致性
 	for i := 0; i < len(otherNodes); i++ {
-		transport.AsyncSend(nodes[i], &node.KvCommand{})
+		transport.AsyncSend(nodes[i], &node.KvCommand{
+			Command: node.PUT,
+			Key:     key,
+			Value:   acceptValue.(version.Value),
+		})
 	}
 	transport.WaitResp(config.WriteConcern())
 	// 4. 等待w个个响应, 如果收到的响应少于w个,则重试,直到收到w个响应
 
 	// 5. 返回客户端
+
+	return nil
 }

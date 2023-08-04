@@ -33,10 +33,8 @@ func (s *server) Put(ctx context.Context, req *v1.PutRequest) (*v1.PutResponse, 
 	// 	mapstructure.Decode(pairs, meta)
 	// }
 	value := &version.Value{
-		KeyValue: &v1.Object{
-			Key:   req.Key,
-			Value: req.Value,
-		},
+		Key:           req.Key,
+		Value:         req.Value,
 		VersionVector: &version.Vector{},
 	}
 

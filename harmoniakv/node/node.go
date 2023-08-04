@@ -27,7 +27,7 @@ type Node struct {
 	State     int8
 	SendTime  int64
 
-	store storage.Storage
+	Store storage.Storage
 }
 
 const (
@@ -69,10 +69,9 @@ func (n *Node) HandleCommand(cmd *KvCommand) (interface{}, error) {
 	} else if cmd.Command == PUT {
 		logrus.Debugf("put key: %s, value: %v", cmd.Key, cmd.Value)
 		// 2. 生成该key对应的版本向量, 写入本地数据库
-		// cmd.Value.VersionVector.Increment(n.ID)
-		// 3. 从本地数据库读取该key的所有版本
-		// n.store.Put(cmd.Key, cmd.Value)
-		// 4. 将所有版本返回给协调节点
+		cmd.Value.VersionVector.Increment(n.ID)
+		// 3. 写入对应的值到本地
+		n.Store.Put(cmd.Key, cmd.Value)
 		return nil, nil
 	}
 	return nil, nil

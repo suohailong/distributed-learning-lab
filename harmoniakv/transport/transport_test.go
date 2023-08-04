@@ -4,6 +4,7 @@ import (
 	"distributed-learning-lab/harmoniakv/config"
 	"distributed-learning-lab/harmoniakv/node"
 	"distributed-learning-lab/harmoniakv/node/version"
+	"fmt"
 	"testing"
 
 	"github.com/cch123/supermonkey"
@@ -27,6 +28,18 @@ func TestTran(t *testing.T) {
 	suite.Run(t, new(transTestSuite))
 }
 
+type memoryKvStore struct {
+}
+
+func (m *memoryKvStore) Put(key []byte, value version.Value) {
+	fmt.Println("put", key, value.Value, value.VersionVector)
+}
+
+func (m *memoryKvStore) Get(key []byte) []*version.Value {
+	fmt.Println("get", key)
+	return []*version.Value{}
+}
+
 // GOARCH=amd64 go test -test.run="TestTran/TestTransport" -v -ldflags="-s=false" -gcflags="-l"  ./harmoniakv/transport/
 func (g *transTestSuite) TestTransport() {
 	// logger, hook := test.NewNullLogger() // logger.Error("Helloerror")
@@ -37,7 +50,7 @@ func (g *transTestSuite) TestTransport() {
 
 	// hook.Reset()
 	// assert.Nil(t, hook.LastEntry())
-	node1 := &node.Node{ID: "node1"}
+	node1 := &node.Node{ID: "node1", Store: &memoryKvStore{}}
 	node2 := &node.Node{ID: "node2"}
 	node3 := &node.Node{ID: "node3"}
 
@@ -53,7 +66,7 @@ func (g *transTestSuite) TestTransport() {
 		pool: pool,
 	}
 	cmd := &node.KvCommand{
-		Command: node.GET,
+		Command: node.PUT,
 		Key:     []byte("key"),
 		Value: version.Value{
 			Key:   []byte("key"),
