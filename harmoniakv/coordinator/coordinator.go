@@ -36,8 +36,7 @@ func (d *defaultCoordinator) isInPrimaryList(replicas []*node.Node, nodeId strin
 func (d *defaultCoordinator) HandleGet(key []byte) ([]*v1.Object, error) {
 	//1. 协调节点从该key的首选列表中排名最高的N个可达节点请求该key的所有数据版本
 	nodes := d.cluster.GetReplicas(key, config.Replicas())
-	//2. 判断自己是否是该key的协调节点, 不是则转发请求
-	// 1. 判断自己是否为首选节点,如果不是直接转发请求,到指定节点
+	// 2. 判断自己是否为首选节点,如果不是直接转发请求,到指定节点
 	index := d.isInPrimaryList(nodes, config.LocalId())
 	if index < 0 {
 		// 选择第一转发请求
@@ -52,7 +51,6 @@ func (d *defaultCoordinator) HandleGet(key []byte) ([]*v1.Object, error) {
 	resps := transport.WaitResp(config.ReadConcern())
 	//4. 如果协调节点最终搜集到多个数据版本,它将返回它认为因果无关的版本
 	logrus.Infof("get %s, resps: %v", key, resps)
-
 	return []*v1.Object{}, nil
 }
 
