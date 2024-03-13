@@ -41,6 +41,10 @@ type WalEntry struct {
 	TimeStamp  uint64    `json:"timeStamp"`
 }
 
+// TODO: 什么时候刷新到磁盘
+// TODO: 如果日志文件损坏了，怎么办
+// TODO: 日志文件是append only， 如果客户端由于网络等原因失败后重试， 需要append 提供幂等性
+// TODO: writeAheadLog 日志低于低水位线的可以删掉
 type WriteAheadLog struct {
 	sync.RWMutex
 	index   int
@@ -138,6 +142,8 @@ func (wal *WriteAheadLog) SaveToDisk() error {
 			log.Fatalf("Failed to write entry to file: %v", err)
 		}
 	}
+	// 这里同步完就删掉当前的日志
+	wal.entries = make([]*WalEntry, 0)
 
 	err := wal.file.Sync()
 	if err != nil {
