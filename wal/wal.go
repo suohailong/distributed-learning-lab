@@ -2,7 +2,9 @@ package wal
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
+	"hash/crc32"
 	"os"
 	"sync"
 	"time"
@@ -41,16 +43,17 @@ type WalEntry struct {
 	TimeStamp  uint64    `json:"timeStamp"`
 }
 
-// TODO: 什么时候刷新到磁盘
+// TODO: 什么时候刷新到磁盘, etcd相当于小批量刷新
 // TODO: 如果日志文件损坏了，怎么办
 // TODO: 日志文件是append only， 如果客户端由于网络等原因失败后重试， 需要append 提供幂等性
 // TODO: writeAheadLog 日志低于低水位线的可以删掉
 type WriteAheadLog struct {
 	sync.RWMutex
-	index   int
-	entries []*WalEntry
-	file    *os.File
-	ds      Serializer
+	index    int
+	entries  []*WalEntry
+	file     *os.File
+	ds       Serializer
+	crcTable *crc32.Table
 }
 
 func NewWriteAheadLog(logName string) *WriteAheadLog {
@@ -61,12 +64,14 @@ func NewWriteAheadLog(logName string) *WriteAheadLog {
 	log.Debugf("open file: %s successfully", logName)
 
 	wal := &WriteAheadLog{
-		index:   0,
-		entries: make([]*WalEntry, 0),
-		file:    f,
-		ds:      &defaultSerializer{},
+		index:    0,
+		entries:  make([]*WalEntry, 0),
+		file:     f,
+		ds:       &defaultSerializer{},
+		crcTable: crc32.MakeTable(crc32.Castagnoli),
 	}
 
+	// 定时刷新到磁盘
 	go func() {
 		for {
 			time.Sleep(1 * time.Second)
@@ -113,13 +118,14 @@ func (wal *WriteAheadLog) ReadLogAll() ([]*WalEntry, error) {
 func (wal *WriteAheadLog) WriteEntry(key, value string, entryType EntryType) {
 	wal.Lock()
 	defer wal.Unlock()
-	wal.entries = append(wal.entries, &WalEntry{
+	entry := &WalEntry{
 		EntryIndex: uint64(wal.index),
 		TimeStamp:  uint64(time.Now().Unix()),
 		Key:        []byte(key),
 		Value:      []byte(value),
 		EntryType:  entryType,
-	})
+	}
+	wal.entries = append(wal.entries, entry)
 	wal.index++
 }
 
@@ -132,15 +138,17 @@ func (wal *WriteAheadLog) SaveToDisk() error {
 	}
 
 	for _, entry := range wal.entries {
-		str, err := wal.ds.Marshal(entry)
+		byteData, err := wal.ds.Marshal(entry)
 		if err != nil {
 			log.Fatalf("Failed to marshal entry: %v", err)
 		}
-		str = append(str, []byte("\n")...)
-		_, err = wal.file.Write(str)
+		entryCrc := crc32.Checksum(byteData, wal.crcTable)
+		_, err = wal.file.Write(byteData)
 		if err != nil {
 			log.Fatalf("Failed to write entry to file: %v", err)
 		}
+
+		binary.Write(wal.file, binary.LittleEndian, entryCrc)
 	}
 	// 这里同步完就删掉当前的日志
 	wal.entries = make([]*WalEntry, 0)
@@ -151,49 +159,4 @@ func (wal *WriteAheadLog) SaveToDisk() error {
 	}
 
 	return nil
-}
-
-type KVStore struct {
-	wal  *WriteAheadLog
-	data sync.Map
-}
-
-func NewKvStore(wal string) *KVStore {
-	kv := &KVStore{
-		wal: NewWriteAheadLog(wal),
-	}
-	kv.applyLog()
-	return kv
-}
-
-func (kv *KVStore) applyLog() error {
-	entries, err := kv.wal.ReadLogAll()
-	if err != nil {
-		return err
-	}
-	log.Debugf("read entries from wal: %v", entries)
-	for _, entry := range entries {
-		switch entry.EntryType {
-		case EntryTypePut:
-			kv.data.Store(string(entry.Key), string(entry.Value))
-		}
-	}
-	return nil
-}
-
-func (kv *KVStore) appendLog(key, value string, cmdtype EntryType) {
-	kv.wal.WriteEntry(key, value, cmdtype)
-}
-
-func (kv *KVStore) Get(key string) string {
-	data, ok := kv.data.Load(key)
-	if !ok {
-		return ""
-	}
-	return data.(string)
-}
-
-func (kv *KVStore) Put(key string, value string) {
-	kv.appendLog(key, value, EntryTypePut)
-	kv.data.Store(key, value)
 }
