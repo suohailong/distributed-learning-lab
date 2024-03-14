@@ -2,12 +2,15 @@ package wal
 
 import (
 	"encoding/binary"
-	"encoding/json"
+	"fmt"
 	"hash/crc32"
+	"io"
 	"os"
 	"sync"
 
 	"distributed-learning-lab/util/log"
+
+	"github.com/golang/protobuf/proto"
 )
 
 type Serializer interface {
@@ -15,15 +18,47 @@ type Serializer interface {
 	Unmarshal(data []byte, v any) error
 }
 
-type defaultSerializer struct{}
-
-func (d *defaultSerializer) Marshal(v any) ([]byte, error) {
-	return json.Marshal(v)
+type record struct {
+	data []byte
+	crc  uint32
 }
 
-func (d *defaultSerializer) Unmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
+func (r *record) Reset() {
+	r.data = nil
+	r.crc = 0
 }
+
+func (r *record) String() string {
+	return fmt.Sprintf("Record{data: %v, crc: %v}", r.data, r.crc)
+}
+
+func (r *record) ProtoMessage() {}
+
+func (r *record) Descriptor() ([]byte, []int) {
+	return nil, nil
+}
+
+func (r *record) XXX_MessageName() string {
+	return ""
+}
+
+func (r *record) Marshal() ([]byte, error) {
+	return proto.Marshal(r)
+}
+
+func (r *record) Unmarshal(data []byte) error {
+	return proto.Unmarshal(data, r)
+}
+
+func (r *record) MarshalTo(data []byte) (int, error) {
+	return 0, nil
+}
+
+func (r *record) Size() int {
+	return len(r.data) + binary.Size(r.crc)
+}
+
+func (r *record) XXX_DiscardUnknown() {}
 
 // TODO: 什么时候刷新到磁盘, 立即刷新, 因为是wal，不立即刷新到磁盘就没有持久化可言
 // TODO: 如果日志文件损坏了，怎么办
@@ -86,19 +121,31 @@ func (w *Wal) sync() error {
 	return w.file.Sync()
 }
 
-func (w *Wal) save(entities [][]byte) error {
+func (w *Wal) Save(entities [][]byte) error {
 	w.Lock()
 	defer w.Lock()
 	if len(entities) == 0 {
 		return nil
 	}
+	writeUint64 := func(w io.Writer, n uint64, buf []byte) error {
+		binary.LittleEndian.PutUint64(buf, n)
+		_, err := w.Write(buf)
+		return err
+	}
 	for _, entity := range entities {
-		entryCrc := crc32.Checksum(entity, w.crcTable)
-		_, err := w.file.Write(entity)
+		rec := &record{
+			data: entity,
+		}
+		rec.crc = crc32.Checksum(entity, w.crcTable)
+		d, err := rec.Marshal()
 		if err != nil {
 			return err
 		}
-		err = binary.Write(w.file, binary.LittleEndian, entryCrc)
+		err = writeUint64(w.file, uint64(len(d)), make([]byte, 8))
+		if err != nil {
+			return err
+		}
+		_, err = w.file.Write(d)
 		if err != nil {
 			return err
 		}
