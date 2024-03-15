@@ -7,40 +7,36 @@ import (
 	"time"
 
 	"distributed-learning-lab/util/log"
+	"distributed-learning-lab/wal"
 
 	"github.com/sirupsen/logrus"
 )
 
 type KVStore struct {
-	wal  *WriteAheadLog
+	wal  *wal.Wal
 	data sync.Map
 }
 
-func NewKvStore(wal string) *KVStore {
+func NewKvStore(dir string) *KVStore {
 	kv := &KVStore{
-		wal: NewWriteAheadLog(wal),
+		wal: wal.CreateWal(dir),
 	}
 	kv.applyLog()
 	return kv
 }
 
 func (kv *KVStore) applyLog() error {
-	entries, err := kv.wal.ReadLogAll()
+	entries, err := kv.wal.ReadAll()
 	if err != nil {
 		return err
 	}
 	log.Debugf("read entries from wal: %v", entries)
-	for _, entry := range entries {
-		switch entry.EntryType {
-		case EntryTypePut:
-			kv.data.Store(string(entry.Key), string(entry.Value))
-		}
-	}
+	// TODO: 恢复数据
 	return nil
 }
 
-func (kv *KVStore) appendLog(key, value string, cmdtype EntryType) {
-	kv.wal.WriteEntry(key, value, cmdtype)
+func (kv *KVStore) appendLog(key, value string, cmdtype int) {
+	kv.wal.Save([][]byte{})
 }
 
 func (kv *KVStore) Get(key string) string {
@@ -52,7 +48,7 @@ func (kv *KVStore) Get(key string) string {
 }
 
 func (kv *KVStore) Put(key string, value string) {
-	kv.appendLog(key, value, EntryTypePut)
+	kv.appendLog(key, value, 0)
 	kv.data.Store(key, value)
 }
 

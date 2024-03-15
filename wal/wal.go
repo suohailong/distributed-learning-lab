@@ -9,8 +9,6 @@ import (
 	"sync"
 
 	"distributed-learning-lab/util/log"
-
-	"github.com/golang/protobuf/proto"
 )
 
 type Serializer interface {
@@ -23,42 +21,22 @@ type record struct {
 	crc  uint32
 }
 
-func (r *record) Reset() {
-	r.data = nil
-	r.crc = 0
-}
-
-func (r *record) String() string {
-	return fmt.Sprintf("Record{data: %v, crc: %v}", r.data, r.crc)
-}
-
-func (r *record) ProtoMessage() {}
-
-func (r *record) Descriptor() ([]byte, []int) {
-	return nil, nil
-}
-
-func (r *record) XXX_MessageName() string {
-	return ""
+func (r *record) UnMarshal(data []byte) error {
+	if len(data) < 4 {
+		return fmt.Errorf("invalid data length")
+	}
+	r.crc = binary.LittleEndian.Uint32(data[:4])
+	r.data = data[4:]
+	return nil
 }
 
 func (r *record) Marshal() ([]byte, error) {
-	return proto.Marshal(r)
+	dataLen := len(r.data)
+	buf := make([]byte, 4+dataLen)
+	binary.LittleEndian.PutUint32(buf[:4], r.crc)
+	copy(buf[4:], r.data)
+	return buf, nil
 }
-
-func (r *record) Unmarshal(data []byte) error {
-	return proto.Unmarshal(data, r)
-}
-
-func (r *record) MarshalTo(data []byte) (int, error) {
-	return 0, nil
-}
-
-func (r *record) Size() int {
-	return len(r.data) + binary.Size(r.crc)
-}
-
-func (r *record) XXX_DiscardUnknown() {}
 
 // TODO: 什么时候刷新到磁盘, 立即刷新, 因为是wal，不立即刷新到磁盘就没有持久化可言
 // TODO: 如果日志文件损坏了，怎么办
@@ -89,32 +67,32 @@ func CreateWal(logName string) *Wal {
 	return wal
 }
 
+func (w *Wal) readRecord() ([]byte, error) {
+	readInt64 := func(r io.Reader) (uint64, error) {
+		var n uint64
+		err := binary.Read(r, binary.LittleEndian, &n)
+		return n, err
+	}
+	n64, err := readInt64(w.file)
+	if err != nil {
+		if err != io.EOF {
+			return []byte{}, err
+		}
+	}
+	fmt.Println(11111, n64)
+	buf := make([]byte, n64)
+	_, err = io.ReadFull(w.file, buf)
+	if err != nil {
+		return []byte{}, err
+	}
+	return buf, nil
+}
+
 func (w *Wal) ReadAll() ([]byte, error) {
 	w.Lock()
 	defer w.Unlock()
 
-	stat, err := w.file.Stat()
-	if err != nil {
-		return nil, err
-	}
-
-	buf := make([]byte, stat.Size())
-	_, err = w.file.Read(buf)
-	if err != nil {
-		return nil, err
-	}
-
-	// entries := make([]byte, 0)
-	// for _, line := range bytes.Split(buf, []byte("\n")) {
-	// 	if len(line) == 0 {
-	// 		continue
-	// 	}
-	// 	entries = append(entries, entry...)
-	// }
-
-	// w.entries = entries
-	// w.index = len(entries)
-	return buf, nil
+	return []byte{}, nil
 }
 
 func (w *Wal) sync() error {
@@ -122,8 +100,6 @@ func (w *Wal) sync() error {
 }
 
 func (w *Wal) Save(entities [][]byte) error {
-	w.Lock()
-	defer w.Lock()
 	if len(entities) == 0 {
 		return nil
 	}
