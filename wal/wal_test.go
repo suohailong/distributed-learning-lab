@@ -2,7 +2,6 @@ package wal
 
 import (
 	"encoding/binary"
-	"fmt"
 	"hash/crc32"
 	"os"
 	"testing"
@@ -71,34 +70,54 @@ func TestReadRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(tmpfile.Name())
+	// defer os.Remove(tmpfile.Name())
 
 	// Create a Wal instance
 	w := &Wal{
-		file: tmpfile,
+		file:     tmpfile,
+		crcTable: crc32.MakeTable(crc32.Castagnoli),
 	}
 
 	// Write test data to the file
 	testData := []byte("test data")
 
-	buf := make([]byte, len(testData))
-	binary.LittleEndian.PutUint64(buf, uint64(len(testData)))
-	_, err = w.file.Write(buf)
-	if err != nil {
-		t.Fatal(err)
-	}
+	err = w.Save([][]byte{testData})
+	assert.NoError(t, err)
 
-	_, err = w.file.Write(testData)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.file.Sync()
 	w.file.Seek(0, 0)
-	fmt.Println("hahahahaa", len(testData))
-
 	// Call the readRecord function
 	record, err := w.readRecord()
 	assert.NoError(t, err)
-	fmt.Println("record", string(record))
 	assert.Equal(t, testData, record)
+}
+
+func TestReadAll(t *testing.T) {
+	// Create a temporary file for testing
+	tmpfile, err := os.CreateTemp("testdata", "wal_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	// Create a Wal instance
+	w := &Wal{
+		file:     tmpfile,
+		crcTable: crc32.MakeTable(crc32.Castagnoli),
+	}
+
+	// Write test data to the file
+	entities := [][]byte{
+		[]byte("entity1"),
+		[]byte("entity22"),
+		[]byte("entity333"),
+	}
+	err = w.Save(entities)
+	assert.NoError(t, err)
+
+	// Call the ReadAll function
+	readEntities, err := w.ReadAll()
+	assert.NoError(t, err)
+
+	// Verify the returned entities
+	assert.Equal(t, entities, readEntities)
 }

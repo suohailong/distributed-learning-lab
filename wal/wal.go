@@ -2,6 +2,7 @@ package wal
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -10,6 +11,8 @@ import (
 
 	"distributed-learning-lab/util/log"
 )
+
+var ErrCRCMismatch = errors.New("wal: crc mismatch")
 
 type Serializer interface {
 	Marshal(v any) ([]byte, error)
@@ -48,7 +51,8 @@ type Wal struct {
 	// entities []byte
 	file *os.File
 	// ds       Serializer
-	crcTable *crc32.Table
+	crcTable    *crc32.Table
+	writeOffset int64
 }
 
 func CreateWal(logName string) *Wal {
@@ -67,6 +71,13 @@ func CreateWal(logName string) *Wal {
 	return wal
 }
 
+func (w *Wal) Close() error {
+	if err := w.sync(); err != nil {
+		return err
+	}
+	return w.file.Close()
+}
+
 func (w *Wal) readRecord() ([]byte, error) {
 	readInt64 := func(r io.Reader) (uint64, error) {
 		var n uint64
@@ -75,24 +86,45 @@ func (w *Wal) readRecord() ([]byte, error) {
 	}
 	n64, err := readInt64(w.file)
 	if err != nil {
-		if err != io.EOF {
-			return []byte{}, err
-		}
+		return []byte{}, err
 	}
-	fmt.Println(11111, n64)
 	buf := make([]byte, n64)
 	_, err = io.ReadFull(w.file, buf)
 	if err != nil {
 		return []byte{}, err
 	}
-	return buf, nil
+	r := &record{}
+	err = r.UnMarshal(buf)
+	if err != nil {
+		return []byte{}, err
+	}
+	crc := crc32.Checksum(r.data, w.crcTable)
+	if crc != r.crc {
+		return []byte{}, ErrCRCMismatch
+	}
+
+	return r.data, nil
 }
 
-func (w *Wal) ReadAll() ([]byte, error) {
-	w.Lock()
-	defer w.Unlock()
-
-	return []byte{}, nil
+func (w *Wal) ReadAll() ([][]byte, error) {
+	_, err := w.file.Seek(0, 0)
+	if err != nil {
+		return nil, err
+	}
+	records := make([][]byte, 0)
+	for {
+		record, err := w.readRecord()
+		if err == io.EOF {
+			log.Debugf("read all records from wal")
+			break
+		}
+		if err != nil {
+			log.Errorf("read record from wal failed: %v", err)
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, nil
 }
 
 func (w *Wal) sync() error {
@@ -108,6 +140,11 @@ func (w *Wal) Save(entities [][]byte) error {
 		_, err := w.Write(buf)
 		return err
 	}
+	_, err := w.file.Seek(w.writeOffset, 0)
+	if err != nil {
+		log.Errorf("seek file failed: %v", err)
+		return err
+	}
 	for _, entity := range entities {
 		rec := &record{
 			data: entity,
@@ -115,16 +152,20 @@ func (w *Wal) Save(entities [][]byte) error {
 		rec.crc = crc32.Checksum(entity, w.crcTable)
 		d, err := rec.Marshal()
 		if err != nil {
+			log.Errorf("marshal record failed: %v", err)
 			return err
 		}
 		err = writeUint64(w.file, uint64(len(d)), make([]byte, 8))
 		if err != nil {
+			log.Errorf("write record length failed: %v", err)
 			return err
 		}
 		_, err = w.file.Write(d)
 		if err != nil {
+			log.Errorf("write record failed: %v", err)
 			return err
 		}
+		w.writeOffset += int64(len(d)) + 8
 	}
 	return w.sync()
 }
