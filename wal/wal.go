@@ -14,6 +14,10 @@ import (
 
 var ErrCRCMismatch = errors.New("wal: crc mismatch")
 
+const (
+	MAX_SEGMENT_SIZE = "max_segment_size"
+)
+
 type Serializer interface {
 	Marshal(v any) ([]byte, error)
 	Unmarshal(data []byte, v any) error
@@ -41,34 +45,48 @@ func (r *record) Marshal() ([]byte, error) {
 	return buf, nil
 }
 
-// TODO: 什么时候刷新到磁盘, 立即刷新, 因为是wal，不立即刷新到磁盘就没有持久化可言
-// TODO: 如果日志文件损坏了，怎么办
-// TODO: 日志文件是append only， 如果客户端由于网络等原因失败后重试， 需要append 提供幂等性
-// TODO: Wal 日志低于低水位线的可以删掉
+// 功能
+// 已完成:
+// NOTE: 什么时候刷新到磁盘, 立即刷新, 因为是wal，不立即刷新到磁盘就没有持久化可言
+// NOTE: 如果日志文件损坏了，怎么办, crc
+
+// 未完成(TODO:)
+// 1.日志分段
+// 2.Wal 日志低于低水位线的可以删掉
+// 3.日志文件是append only， 如果客户端由于网络等原因失败后重试， 需要append 提供幂等性
+
+// 优化
+// TODO:
+// 1. 文件锁定
+// 2. 存储优化， 写入的时候，按页写入， 能防止不完整的写入，并且减少磁盘碎片
+// 3. 写入的时候保证一帧的数据是8字节或4字节的倍数， 以便于提高性能， 防止数据撕裂
+
+// 质量要求
 type Wal struct {
 	sync.RWMutex
-	index int
-	// entities []byte
-	file *os.File
-	// ds       Serializer
-	crcTable    *crc32.Table
+	dir string
+	// 当前段
+	file     *os.File
+	crcTable *crc32.Table
+	// 当前段写入偏移
 	writeOffset int64
+	// 总偏移
+	totalOffset int64
+	// 之前所有的段文件
+	segmentFiles []*os.File
+	// 每个段的最大大小
+	maxSegmentSize int64
 }
 
-func CreateWal(logName string) *Wal {
-	f, err := os.OpenFile(logName, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		log.Fatalf("open file %s failed: %v", logName, err)
-	}
-	log.Debugf("open file: %s successfully", logName)
-
-	wal := &Wal{
-		index:    0,
-		file:     f,
+func CreateWal(dir string) (*Wal, error) {
+	w := &Wal{
 		crcTable: crc32.MakeTable(crc32.Castagnoli),
 	}
+	if err := w.OpenSegment(); err != nil {
+		return nil, err
+	}
 
-	return wal
+	return w, nil
 }
 
 func (w *Wal) Close() error {
@@ -166,6 +184,54 @@ func (w *Wal) Save(entities [][]byte) error {
 			return err
 		}
 		w.writeOffset += int64(len(d)) + 8
+		w.totalOffset += int64(len(d)) + 8
+		w.maybeRoll()
 	}
 	return w.sync()
+}
+
+func (w *Wal) getSegmentName() string {
+	return fmt.Sprintf("%s/%d.wal", w.dir, w.writeOffset)
+}
+
+func (w *Wal) OpenSegment() error {
+	sn := w.getSegmentName()
+	f, err := os.OpenFile(sn, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return err
+	}
+	log.Debugf("open file: %s successfully", sn)
+	w.file = f
+	w.segmentFiles = append(w.segmentFiles, f)
+	w.writeOffset = 0
+	return nil
+}
+
+// 日志分段
+func (w *Wal) maybeRoll() error {
+	if w.writeOffset > w.maxSegmentSize {
+
+		currOff, err := w.file.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return err
+		}
+		err = w.file.Truncate(currOff)
+		if err != nil {
+			return err
+		}
+
+		err = w.sync()
+		if err != nil {
+			log.Errorf("")
+			return err
+		}
+
+		err = w.OpenSegment()
+		if err != nil {
+			log.Errorf("")
+			return err
+
+		}
+	}
+	return nil
 }
