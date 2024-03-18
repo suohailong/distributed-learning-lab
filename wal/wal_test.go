@@ -70,7 +70,7 @@ func TestReadRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// defer os.Remove(tmpfile.Name())
+	defer os.Remove(tmpfile.Name())
 
 	// Create a Wal instance
 	w := &Wal{
@@ -120,4 +120,36 @@ func TestReadAll(t *testing.T) {
 
 	// Verify the returned entities
 	assert.Equal(t, entities, readEntities)
+}
+
+func TestMaybeRoll(t *testing.T) {
+	dir := "testdata"
+	tmpfile, err := os.CreateTemp(dir, "waltest_*.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name()) // 在测试结束后删除文件
+
+	// 创建一个 Wal 实例
+	w := &Wal{
+		dir:            dir,
+		file:           tmpfile,
+		writeOffset:    0,
+		maxSegmentSize: 512,
+		crcTable:       crc32.MakeTable(crc32.Castagnoli),
+	}
+
+	entities := [][]byte{}
+	for i := 0; i < 1024; i++ {
+		c := make([]byte, 1)
+		// 写入超过512字节的内容
+		entities = append(entities, c)
+	}
+
+	err = w.Save(entities)
+	assert.NoError(t, err)
+
+	// 验证文件是否被截断并打开了新的文件
+	assert.Equal(t, int64(13*1024), w.totalOffset)
+	assert.Len(t, w.segmentFiles)
 }

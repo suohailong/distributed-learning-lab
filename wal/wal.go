@@ -209,6 +209,7 @@ func (w *Wal) OpenSegment() error {
 
 // 日志分段
 func (w *Wal) maybeRoll() error {
+	// FIXME: 这里有个问题， w.writeOffset是实际写入的大小(包含了crc和数据长度), maxSegmentSize是实际数据的大小(不包含crc和数据长度)
 	if w.writeOffset > w.maxSegmentSize {
 
 		currOff, err := w.file.Seek(0, io.SeekCurrent)
