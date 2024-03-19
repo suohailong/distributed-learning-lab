@@ -12,6 +12,33 @@ import (
 	"distributed-learning-lab/util/log"
 )
 
+// WAL接口
+type WAL interface {
+	// 写入数据
+	Write(data []byte) error
+
+	// 写入数据并同步到磁盘
+	WriteWithSync(data []byte) error
+
+	// 读取数据
+	Read(offset int64, length int) ([]byte, error)
+
+	// 读取所有数据
+	ReadAll() ([]byte, error)
+
+	// 截断WAL日志
+	Truncate(offset int64) error
+
+	// 同步WAL日志到磁盘
+	Sync() error
+
+	// 获取最新LSN
+	GetLastLSN() int64
+
+	// 获取最近一次检查点的LSN
+	GetCheckpointLSN() int64
+}
+
 var ErrCRCMismatch = errors.New("wal: crc mismatch")
 
 const (
@@ -78,9 +105,12 @@ type Wal struct {
 	maxSegmentSize int64
 }
 
-func CreateWal(dir string) (*Wal, error) {
+func CreateWal(dir string, segmentSize int64) (*Wal, error) {
 	w := &Wal{
-		crcTable: crc32.MakeTable(crc32.Castagnoli),
+		dir:            dir,
+		totalOffset:    0,
+		crcTable:       crc32.MakeTable(crc32.Castagnoli),
+		maxSegmentSize: segmentSize,
 	}
 	if err := w.OpenSegment(); err != nil {
 		return nil, err
@@ -125,10 +155,8 @@ func (w *Wal) readRecord() ([]byte, error) {
 }
 
 func (w *Wal) ReadAll() ([][]byte, error) {
-	_, err := w.file.Seek(0, 0)
-	if err != nil {
-		return nil, err
-	}
+	// 打开所有的文件
+
 	records := make([][]byte, 0)
 	for {
 		record, err := w.readRecord()
@@ -149,6 +177,7 @@ func (w *Wal) sync() error {
 	return w.file.Sync()
 }
 
+// TEST:
 func (w *Wal) Save(entities [][]byte) error {
 	if len(entities) == 0 {
 		return nil
@@ -183,7 +212,6 @@ func (w *Wal) Save(entities [][]byte) error {
 			log.Errorf("write record failed: %v", err)
 			return err
 		}
-		w.writeOffset += int64(len(d)) + 8
 		w.totalOffset += int64(len(d)) + 8
 		w.maybeRoll()
 	}
@@ -191,7 +219,7 @@ func (w *Wal) Save(entities [][]byte) error {
 }
 
 func (w *Wal) getSegmentName() string {
-	return fmt.Sprintf("%s/%d.wal", w.dir, w.writeOffset)
+	return fmt.Sprintf("%s/%d.wal", w.dir, w.totalOffset)
 }
 
 func (w *Wal) OpenSegment() error {
@@ -203,19 +231,22 @@ func (w *Wal) OpenSegment() error {
 	log.Debugf("open file: %s successfully", sn)
 	w.file = f
 	w.segmentFiles = append(w.segmentFiles, f)
-	w.writeOffset = 0
 	return nil
 }
 
 // 日志分段
 func (w *Wal) maybeRoll() error {
 	// FIXME: 这里有个问题， w.writeOffset是实际写入的大小(包含了crc和数据长度), maxSegmentSize是实际数据的大小(不包含crc和数据长度)
-	if w.writeOffset > w.maxSegmentSize {
-
+	curoff, err := w.file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return err
+	}
+	if curoff > w.maxSegmentSize {
 		currOff, err := w.file.Seek(0, io.SeekCurrent)
 		if err != nil {
 			return err
 		}
+		// fmt.Println(curoff, w.maxSegmentSize)
 		err = w.file.Truncate(currOff)
 		if err != nil {
 			return err

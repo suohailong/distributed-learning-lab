@@ -44,7 +44,7 @@
           "level": "warning",
           "done": false,
           "start": 1710689398897,
-          "date": "1710691200,1710777599"
+          "date": null
         }
       }
     ],
@@ -63,6 +63,6 @@
     "showEndTime": false,
     "simpleMode": false,
     "lang": "zh-cn",
-    "version": "1710689716173"
+    "version": "1710857545603"
   }
 }

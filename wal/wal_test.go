@@ -3,6 +3,7 @@ package wal
 import (
 	"encoding/binary"
 	"hash/crc32"
+	"io"
 	"os"
 	"testing"
 
@@ -123,21 +124,15 @@ func TestReadAll(t *testing.T) {
 }
 
 func TestMaybeRoll(t *testing.T) {
-	dir := "testdata"
-	tmpfile, err := os.CreateTemp(dir, "waltest_*.log")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name()) // 在测试结束后删除文件
-
 	// 创建一个 Wal 实例
-	w := &Wal{
-		dir:            dir,
-		file:           tmpfile,
-		writeOffset:    0,
-		maxSegmentSize: 512,
-		crcTable:       crc32.MakeTable(crc32.Castagnoli),
-	}
+	w, err := CreateWal("testdata", 6656)
+	assert.NoError(t, err)
+	defer func() {
+		for _, f := range w.segmentFiles {
+			f.Close()
+			os.RemoveAll(f.Name())
+		}
+	}()
 
 	entities := [][]byte{}
 	for i := 0; i < 1024; i++ {
@@ -151,5 +146,42 @@ func TestMaybeRoll(t *testing.T) {
 
 	// 验证文件是否被截断并打开了新的文件
 	assert.Equal(t, int64(13*1024), w.totalOffset)
-	assert.Len(t, w.segmentFiles)
+	entity, err := os.ReadDir("testdata")
+	assert.NoError(t, err)
+	assert.Len(t, entity, 2)
+}
+
+func TestFileOffset(t *testing.T) {
+	// 创建一个临时文件用于测试
+	tmpfile, err := os.CreateTemp("testdata", "wal_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+
+	_, err = tmpfile.Write([]byte("test data"))
+	assert.NoError(t, err)
+	off, err := tmpfile.Seek(0, io.SeekCurrent)
+	assert.NoError(t, err)
+	t.Logf("current offset is %d", off)
+
+	// 文件可以多次打开， 而且以os.O_RDWR打开的文件,offset为0
+	f, err := os.OpenFile(tmpfile.Name(), os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	curoff, err := f.Seek(0, io.SeekStart)
+	assert.NoError(t, err)
+	t.Logf("open finished, curr offset is %d", curoff)
+
+	// 文件可以多次打开， 而且以os.O_RDONLy打开的文件,offset也为0
+	rf, err := os.OpenFile(tmpfile.Name(), os.O_RDONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	rfOffset, err := rf.Seek(0, io.SeekStart)
+	assert.NoError(t, err)
+	t.Logf("open finished, curr offset is %d", rfOffset)
 }
