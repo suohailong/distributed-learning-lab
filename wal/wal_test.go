@@ -2,6 +2,7 @@ package wal
 
 import (
 	"encoding/binary"
+	"fmt"
 	"hash/crc32"
 	"io"
 	"os"
@@ -87,24 +88,21 @@ func TestReadRecord(t *testing.T) {
 
 	w.file.Seek(0, 0)
 	// Call the readRecord function
-	record, err := w.readRecord()
+	record, err := w.readRecord(w.file)
 	assert.NoError(t, err)
 	assert.Equal(t, testData, record)
 }
 
 func TestReadAll(t *testing.T) {
-	// Create a temporary file for testing
-	tmpfile, err := os.CreateTemp("testdata", "wal_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-
+	defer func() {
+		files, _ := os.ReadDir("testdata")
+		for _, f := range files {
+			os.Remove(fmt.Sprintf("%s/%s", "testdata", f.Name()))
+		}
+	}()
 	// Create a Wal instance
-	w := &Wal{
-		file:     tmpfile,
-		crcTable: crc32.MakeTable(crc32.Castagnoli),
-	}
+	w, err := CreateWal("testdata", 20)
+	assert.NoError(t, err)
 
 	// Write test data to the file
 	entities := [][]byte{
@@ -116,8 +114,11 @@ func TestReadAll(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Call the ReadAll function
-	readEntities, err := w.ReadAll()
+	readEntities, err := w.ReadAll(20)
 	assert.NoError(t, err)
+	for _, e := range readEntities {
+		fmt.Println(string(e))
+	}
 
 	// Verify the returned entities
 	assert.Equal(t, entities, readEntities)
@@ -184,4 +185,28 @@ func TestFileOffset(t *testing.T) {
 	rfOffset, err := rf.Seek(0, io.SeekStart)
 	assert.NoError(t, err)
 	t.Logf("open finished, curr offset is %d", rfOffset)
+}
+
+func TestSelectFiles(t *testing.T) {
+	// Create a Wal instance
+	w := &Wal{
+		dir: "testdata",
+	}
+
+	// Test case 1: offset < 0
+	names := []string{"testdata/segment_1.wal", "testdata/segment_2.wal", "testdata/segment_3.wal"}
+	offset := int64(-1)
+	result := w.selectFiles(names, offset)
+	assert.Equal(t, names, result)
+
+	// Test case 2: offset >= len(names)
+	offset = int64(len(names))
+	result = w.selectFiles(names, offset)
+	assert.Empty(t, result)
+
+	// Test case 3: offset within range
+	offset = int64(1)
+	result = w.selectFiles(names, offset)
+	expected := []string{"segment_2.wal", "segment_3.wal"}
+	assert.Equal(t, expected, result)
 }

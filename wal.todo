@@ -11,8 +11,10 @@
               "content": "调研wal readAll的使用场景",
               "id": 1710689579795,
               "level": "warning",
-              "done": false,
-              "start": 1710689579795
+              "done": true,
+              "start": 1710689579795,
+              "focus": false,
+              "end": 1710948352202
             }
           },
           {
@@ -63,6 +65,6 @@
     "showEndTime": false,
     "simpleMode": false,
     "lang": "zh-cn",
-    "version": "1710857545603"
+    "version": "1710948352249"
   }
 }

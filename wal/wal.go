@@ -7,6 +7,7 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
+	"sort"
 	"sync"
 
 	"distributed-learning-lab/util/log"
@@ -126,18 +127,18 @@ func (w *Wal) Close() error {
 	return w.file.Close()
 }
 
-func (w *Wal) readRecord() ([]byte, error) {
+func (w *Wal) readRecord(f io.Reader) ([]byte, error) {
 	readInt64 := func(r io.Reader) (uint64, error) {
 		var n uint64
 		err := binary.Read(r, binary.LittleEndian, &n)
 		return n, err
 	}
-	n64, err := readInt64(w.file)
+	n64, err := readInt64(f)
 	if err != nil {
 		return []byte{}, err
 	}
 	buf := make([]byte, n64)
-	_, err = io.ReadFull(w.file, buf)
+	_, err = io.ReadFull(f, buf)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -154,22 +155,76 @@ func (w *Wal) readRecord() ([]byte, error) {
 	return r.data, nil
 }
 
-func (w *Wal) ReadAll() ([][]byte, error) {
-	// 打开所有的文件
+func (w *Wal) getSegmentNames() ([]string, error) {
+	fns, err := os.ReadDir(w.dir)
+	fileNames := make([]string, 0)
+	if err != nil {
+		return fileNames, err
+	}
+	sort.Slice(fns, func(i, j int) bool {
+		return fns[i].Name() < fns[j].Name()
+	})
+	for _, fn := range fns {
+		fileName := fmt.Sprintf("%s/%s", w.dir, fn.Name())
+		fileNames = append(fileNames, fileName)
+	}
+	return fileNames, nil
+}
 
-	records := make([][]byte, 0)
-	for {
-		record, err := w.readRecord()
-		if err == io.EOF {
-			log.Debugf("read all records from wal")
+func (w *Wal) selectFiles(names []string, offset int64) []string {
+	if offset < 0 {
+		return names
+	}
+	index := -1
+	for i := len(names) - 1; i >= 0; i-- {
+		var off int64
+		var dir string
+		_, err := fmt.Sscanf(names[i], `%s\/segment_%d.wal`, &dir, &off)
+		fmt.Println(err)
+		fmt.Println(names[i], off, dir)
+
+		if offset < off {
+			index = i
 			break
 		}
-		if err != nil {
-			log.Errorf("read record from wal failed: %v", err)
-			return nil, err
-		}
-		records = append(records, record)
 	}
+	if index < 0 {
+		return []string{}
+	}
+
+	return names[index:]
+}
+
+func (w *Wal) ReadAll(offset int64) ([][]byte, error) {
+	// 打开所有的文件
+	records := make([][]byte, 0)
+	fns, err := w.getSegmentNames()
+	if err != nil {
+		return records, err
+	}
+	sFiles := w.selectFiles(fns, offset)
+
+	for _, name := range sFiles {
+		f, err := os.OpenFile(name, os.O_RDONLY, 0o644)
+		if err != nil {
+			return records, err
+		}
+		for {
+			record, err := w.readRecord(f)
+			if err == io.EOF {
+				log.Debugf("read all records from wal")
+				break
+			}
+			if err != nil {
+				log.Errorf("read record from wal failed: %v", err)
+				f.Close()
+				return nil, err
+			}
+			records = append(records, record)
+		}
+		f.Close()
+	}
+
 	return records, nil
 }
 
@@ -219,7 +274,7 @@ func (w *Wal) Save(entities [][]byte) error {
 }
 
 func (w *Wal) getSegmentName() string {
-	return fmt.Sprintf("%s/%d.wal", w.dir, w.totalOffset)
+	return fmt.Sprintf("%s/segment_%d.wal", w.dir, w.totalOffset)
 }
 
 func (w *Wal) OpenSegment() error {
