@@ -235,8 +235,6 @@ func (w *Wal) ReadAll(offset int64) ([][]byte, error) {
 				return records, err
 			}
 		}
-		of, _ := f.Seek(0, io.SeekCurrent)
-		fmt.Println("当前文件的offset", of)
 		for {
 			record, err := w.readRecord(f)
 			if err == io.EOF {

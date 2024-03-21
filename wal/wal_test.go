@@ -131,17 +131,10 @@ func TestReadAll(t *testing.T) {
 	}
 	for i, offset := range offsetMatrix {
 		// Call the ReadAll function
-		fmt.Println("start ........")
 		readEntities, err := w.ReadAll(offset)
 		assert.NoError(t, err)
-		fmt.Println("num:", i)
-		for _, e := range readEntities {
-			fmt.Println(string(e))
-		}
 		// Verify the returned entities
 		assert.Equal(t, expectMatrix[i], readEntities)
-		fmt.Println("end ........")
-
 	}
 }
 
