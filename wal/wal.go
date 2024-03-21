@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 
 	"distributed-learning-lab/util/log"
@@ -40,7 +41,10 @@ type WAL interface {
 	GetCheckpointLSN() int64
 }
 
-var ErrCRCMismatch = errors.New("wal: crc mismatch")
+var (
+	ErrCRCMismatch     = errors.New("wal: crc mismatch")
+	ErrFileNameInvalid = errors.New("wal name is invalid")
+)
 
 const (
 	MAX_SEGMENT_SIZE = "max_segment_size"
@@ -171,28 +175,33 @@ func (w *Wal) getSegmentNames() ([]string, error) {
 	return fileNames, nil
 }
 
-func (w *Wal) selectFiles(names []string, offset int64) []string {
+func (w *Wal) selectFiles(names []string, offset int64) ([]string, int64, error) {
 	if offset < 0 {
-		return names
+		return names, 0, nil
 	}
 	index := -1
+	seq := int64(0)
 	for i := len(names) - 1; i >= 0; i-- {
-		var off int64
-		var dir string
-		_, err := fmt.Sscanf(names[i], `%s\/segment_%d.wal`, &dir, &off)
-		fmt.Println(err)
-		fmt.Println(names[i], off, dir)
-
-		if offset < off {
+		// var dir, segStr string
+		var segNo int64
+		name := strings.Split(names[i], "/")
+		_, err := fmt.Sscanf(name[1], "segment_%d.wal", &segNo)
+		if err != nil {
+			return []string{}, 0, err
+		}
+		if offset < segNo {
+			continue
+		} else {
 			index = i
+			seq = segNo
 			break
 		}
 	}
 	if index < 0 {
-		return []string{}
+		return []string{}, 0, nil
 	}
 
-	return names[index:]
+	return names[index:], seq, nil
 }
 
 func (w *Wal) ReadAll(offset int64) ([][]byte, error) {
@@ -202,13 +211,32 @@ func (w *Wal) ReadAll(offset int64) ([][]byte, error) {
 	if err != nil {
 		return records, err
 	}
-	sFiles := w.selectFiles(fns, offset)
+	sFiles, seq, err := w.selectFiles(fns, offset)
+	if err != nil {
+		return records, err
+	}
+	openFiles := []*os.File{}
+	defer func() {
+		for _, f := range openFiles {
+			f.Close()
+		}
+	}()
 
-	for _, name := range sFiles {
+	for i, name := range sFiles {
 		f, err := os.OpenFile(name, os.O_RDONLY, 0o644)
 		if err != nil {
 			return records, err
 		}
+		openFiles = append(openFiles, f)
+		// 如果是第一个文件，offset可能是中间位置， 所以直接定位到offset
+		if i == 0 && offset > seq {
+			_, err := f.Seek(offset, io.SeekStart)
+			if err != nil {
+				return records, err
+			}
+		}
+		of, _ := f.Seek(0, io.SeekCurrent)
+		fmt.Println("当前文件的offset", of)
 		for {
 			record, err := w.readRecord(f)
 			if err == io.EOF {
@@ -217,12 +245,10 @@ func (w *Wal) ReadAll(offset int64) ([][]byte, error) {
 			}
 			if err != nil {
 				log.Errorf("read record from wal failed: %v", err)
-				f.Close()
 				return nil, err
 			}
 			records = append(records, record)
 		}
-		f.Close()
 	}
 
 	return records, nil
@@ -293,6 +319,7 @@ func (w *Wal) OpenSegment() error {
 func (w *Wal) maybeRoll() error {
 	// FIXME: 这里有个问题， w.writeOffset是实际写入的大小(包含了crc和数据长度), maxSegmentSize是实际数据的大小(不包含crc和数据长度)
 	curoff, err := w.file.Seek(0, io.SeekCurrent)
+	fmt.Println(curoff)
 	if err != nil {
 		return err
 	}

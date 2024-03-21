@@ -113,15 +113,36 @@ func TestReadAll(t *testing.T) {
 	err = w.Save(entities)
 	assert.NoError(t, err)
 
-	// Call the ReadAll function
-	readEntities, err := w.ReadAll(20)
-	assert.NoError(t, err)
-	for _, e := range readEntities {
-		fmt.Println(string(e))
+	offsetMatrix := []int64{0, 19, 39, 60}
+	expectMatrix := [][][]byte{
+		{
+			[]byte("entity1"),
+			[]byte("entity22"),
+			[]byte("entity333"),
+		},
+		{
+			[]byte("entity22"),
+			[]byte("entity333"),
+		},
+		{
+			[]byte("entity333"),
+		},
+		{},
 	}
+	for i, offset := range offsetMatrix {
+		// Call the ReadAll function
+		fmt.Println("start ........")
+		readEntities, err := w.ReadAll(offset)
+		assert.NoError(t, err)
+		fmt.Println("num:", i)
+		for _, e := range readEntities {
+			fmt.Println(string(e))
+		}
+		// Verify the returned entities
+		assert.Equal(t, expectMatrix[i], readEntities)
+		fmt.Println("end ........")
 
-	// Verify the returned entities
-	assert.Equal(t, entities, readEntities)
+	}
 }
 
 func TestMaybeRoll(t *testing.T) {
@@ -194,19 +215,34 @@ func TestSelectFiles(t *testing.T) {
 	}
 
 	// Test case 1: offset < 0
-	names := []string{"testdata/segment_1.wal", "testdata/segment_2.wal", "testdata/segment_3.wal"}
+	names := []string{"testdata/segment_1.wal", "testdata/segment_5.wal", "testdata/segment_9.wal"}
 	offset := int64(-1)
-	result := w.selectFiles(names, offset)
+	result, _, err := w.selectFiles(names, offset)
+	assert.NoError(t, err)
 	assert.Equal(t, names, result)
 
-	// Test case 2: offset >= len(names)
-	offset = int64(len(names))
-	result = w.selectFiles(names, offset)
-	assert.Empty(t, result)
+	var offsetMatrix [][]int64 = [][]int64{
+		{1, 2, 3, 4},
+		{5, 6, 7, 8},
+		{9, 10, 11, 12},
+	}
+	var expectMatrix [][]string = [][]string{
+		{"testdata/segment_1.wal", "testdata/segment_5.wal", "testdata/segment_9.wal"},
+		{"testdata/segment_5.wal", "testdata/segment_9.wal"},
+		{"testdata/segment_9.wal"},
+	}
 
 	// Test case 3: offset within range
+	for i, item := range offsetMatrix {
+		for _, offset := range item {
+			result, _, err = w.selectFiles(names, offset)
+			assert.NoError(t, err)
+			assert.Equal(t, expectMatrix[i], result)
+		}
+	}
+
+	names = []string{"testdata/segment_.wal", "testdata/segment_2.wal", "testdata/segment_3.wal"}
 	offset = int64(1)
-	result = w.selectFiles(names, offset)
-	expected := []string{"segment_2.wal", "segment_3.wal"}
-	assert.Equal(t, expected, result)
+	_, _, err = w.selectFiles(names, offset)
+	assert.Error(t, err)
 }
