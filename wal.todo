@@ -24,8 +24,10 @@
               "content": "完善readAll 的功能",
               "id": 1710689637416,
               "level": "warning",
-              "done": false,
-              "start": 1710689637416
+              "done": true,
+              "start": 1710689637416,
+              "focus": false,
+              "end": 1711037389404
             }
           },
           {
@@ -35,8 +37,10 @@
               "content": "完善单测",
               "id": 1710689658842,
               "level": "warning",
-              "done": false,
-              "start": 1710689658842
+              "done": true,
+              "start": 1710689658842,
+              "focus": false,
+              "end": 1711037390156
             }
           }
         ],
@@ -44,9 +48,22 @@
           "content": "完善wal segment功能",
           "id": 1710689398897,
           "level": "warning",
-          "done": false,
+          "done": true,
           "start": 1710689398897,
-          "date": null
+          "date": null,
+          "focus": false,
+          "end": 1711037391444
+        }
+      },
+      {
+        "key": 1711037393548,
+        "children": [],
+        "todo": {
+          "content": "完善低水位功能",
+          "id": 1711037393548,
+          "level": "default",
+          "done": false,
+          "start": 1711037393548
         }
       }
     ],
@@ -65,6 +82,6 @@
     "showEndTime": false,
     "simpleMode": false,
     "lang": "zh-cn",
-    "version": "1710948352249"
+    "version": "1711037405386"
   }
 }

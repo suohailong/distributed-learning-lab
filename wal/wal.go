@@ -28,9 +28,6 @@ type WAL interface {
 	// 读取所有数据
 	ReadAll() ([]byte, error)
 
-	// 截断WAL日志
-	Truncate(offset int64) error
-
 	// 同步WAL日志到磁盘
 	Sync() error
 
@@ -77,14 +74,16 @@ func (r *record) Marshal() ([]byte, error) {
 	return buf, nil
 }
 
+// 使用场景：wal解决的事单机事务ACID中的A和D。
+
 // 功能
 // 已完成:
-// NOTE: 什么时候刷新到磁盘, 立即刷新, 因为是wal，不立即刷新到磁盘就没有持久化可言
-// NOTE: 如果日志文件损坏了，怎么办, crc
+// 什么时候刷新到磁盘, 立即刷新, 因为是wal，不立即刷新到磁盘就没有持久化可言
+// 如果日志文件损坏了，怎么办, crc
+// 日志分段
 
 // 未完成(TODO:)
-// 1.日志分段
-// 2.Wal 日志低于低水位线的可以删掉
+// 2.Wal 日志低于低水位线的可以删掉, 低水位就是一个阈值可以是一个索引，也可以是一个时间值
 // 3.日志文件是append only， 如果客户端由于网络等原因失败后重试， 需要append 提供幂等性
 
 // 优化
