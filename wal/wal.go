@@ -17,10 +17,7 @@ import (
 // WAL接口
 type WAL interface {
 	// 写入数据
-	Write(data []byte) error
-
-	// 写入数据并同步到磁盘
-	WriteWithSync(data []byte) error
+	Save(entities [][]byte) error
 
 	// 读取数据
 	Read(offset int64, length int) ([]byte, error)
@@ -81,10 +78,7 @@ func (r *record) Marshal() ([]byte, error) {
 // 什么时候刷新到磁盘, 立即刷新, 因为是wal，不立即刷新到磁盘就没有持久化可言
 // 如果日志文件损坏了，怎么办, crc
 // 日志分段
-
-// 未完成(TODO:)
-// 2.Wal 日志低于低水位线的可以删掉, 低水位就是一个阈值可以是一个索引，也可以是一个时间值
-// 3.日志文件是append only， 如果客户端由于网络等原因失败后重试， 需要append 提供幂等性
+// Wal 日志低于低水位线的可以删掉, 低水位就是一个阈值可以是一个索引，也可以是一个时间值
 
 // 优化
 // TODO:
@@ -99,8 +93,6 @@ type Wal struct {
 	// 当前段
 	file     *os.File
 	crcTable *crc32.Table
-	// 当前段写入偏移
-	writeOffset int64
 	// 总偏移
 	totalOffset int64
 	// 之前所有的段文件
@@ -116,6 +108,7 @@ func CreateWal(dir string, segmentSize int64) (*Wal, error) {
 		crcTable:       crc32.MakeTable(crc32.Castagnoli),
 		maxSegmentSize: segmentSize,
 	}
+	// TODO: 这里需要从文件索引恢复totalOffset
 	if err := w.OpenSegment(); err != nil {
 		return nil, err
 	}
@@ -203,6 +196,33 @@ func (w *Wal) selectFiles(names []string, offset int64) ([]string, int64, error)
 	return names[index:], seq, nil
 }
 
+func (w *Wal) CleanWal(offset int64) error {
+	fns, err := w.getSegmentNames()
+	if err != nil {
+		return err
+	}
+	_, seq, err := w.selectFiles(fns, offset)
+	if err != nil {
+		return err
+	}
+	for _, name := range fns {
+		var segNo int64
+		n := strings.Split(name, "/")
+		_, err := fmt.Sscanf(n[1], "segment_%d.wal", &segNo)
+		if err != nil {
+			return err
+		}
+		if segNo < seq {
+			// TODO: 如果当前文件在segmentFiles中，先关闭segmentFiles中的之后再清除这些文件
+			err = os.Remove(name)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (w *Wal) ReadAll(offset int64) ([][]byte, error) {
 	// 打开所有的文件
 	records := make([][]byte, 0)
@@ -263,11 +283,6 @@ func (w *Wal) Save(entities [][]byte) error {
 	writeUint64 := func(w io.Writer, n uint64, buf []byte) error {
 		binary.LittleEndian.PutUint64(buf, n)
 		_, err := w.Write(buf)
-		return err
-	}
-	_, err := w.file.Seek(w.writeOffset, 0)
-	if err != nil {
-		log.Errorf("seek file failed: %v", err)
 		return err
 	}
 	for _, entity := range entities {
