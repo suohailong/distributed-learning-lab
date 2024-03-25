@@ -62,14 +62,40 @@
           "content": "完善低水位功能",
           "id": 1711037393548,
           "level": "default",
+          "done": true,
+          "start": 1711037393548,
+          "focus": false,
+          "end": 1711380935406
+        }
+      },
+      {
+        "key": 1711380945447,
+        "children": [],
+        "todo": {
+          "content": "用文件锁改造wal",
+          "id": 1711380945447,
+          "level": "default",
           "done": false,
-          "start": 1711037393548
+          "start": 1711380945447,
+          "date": "1711382400,1711468799"
+        }
+      },
+      {
+        "key": 1711381012598,
+        "children": [],
+        "todo": {
+          "content": "写入优化（包括按页写入和字节对齐）",
+          "id": 1711381012598,
+          "level": "default",
+          "done": false,
+          "start": 1711381012598
         }
       }
     ],
     "expandKeys": [
       1710689398897,
-      1710689637416
+      1710689637416,
+      1711380945447
     ],
     "schema": "https://github.com/Saber2pr/vsc-ext-todolist/blob/master/src/api/type.ts#L3",
     "add_mode": "bottom",
@@ -82,6 +108,6 @@
     "showEndTime": false,
     "simpleMode": false,
     "lang": "zh-cn",
-    "version": "1711037405386"
+    "version": "1711381069788"
   }
 }

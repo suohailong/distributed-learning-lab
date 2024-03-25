@@ -177,7 +177,7 @@ func (w *Wal) selectFiles(names []string, offset int64) ([]string, int64, error)
 		// var dir, segStr string
 		var segNo int64
 		name := strings.Split(names[i], "/")
-		_, err := fmt.Sscanf(name[1], "segment_%d.wal", &segNo)
+		_, err := fmt.Sscanf(name[len(name)-1], "segment_%d.wal", &segNo)
 		if err != nil {
 			return []string{}, 0, err
 		}
@@ -196,6 +196,12 @@ func (w *Wal) selectFiles(names []string, offset int64) ([]string, int64, error)
 	return names[index:], seq, nil
 }
 
+// CleanWal deletes the write-ahead log (WAL) files that have an index number less than the given offset.
+// It first retrieves the segment names of the WAL files, then selects the files that have an index number less than the offset.
+// For each selected file, it checks if the file is currently being used or opened. If not, it deletes the file.
+// Note that deleting a file that is currently being used may cause issues in the business logic, so it is recommended to acquire a lock before deleting.
+// The function returns an error if any error occurs during the process.
+
 func (w *Wal) CleanWal(offset int64) error {
 	fns, err := w.getSegmentNames()
 	if err != nil {
@@ -208,12 +214,13 @@ func (w *Wal) CleanWal(offset int64) error {
 	for _, name := range fns {
 		var segNo int64
 		n := strings.Split(name, "/")
-		_, err := fmt.Sscanf(n[1], "segment_%d.wal", &segNo)
+		_, err := fmt.Sscanf(n[len(n)-1], "segment_%d.wal", &segNo)
 		if err != nil {
 			return err
 		}
 		if segNo < seq {
-			// TODO: 如果当前文件在segmentFiles中，先关闭segmentFiles中的之后再清除这些文件
+			// 如果当前文件正在被打开或使用，删除操作理论上不会影响该文件正在进行的操作， 因为linux打开一个文件只是相当于inode增加了一个引用计数，只有引用计数为0的时候，文件才会被删除
+			// 但是这里如果直接删除，在业务层面可能会有问题， 所以这里在删除之前最好给文件加锁
 			err = os.Remove(name)
 			if err != nil {
 				return err

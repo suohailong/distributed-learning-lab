@@ -6,6 +6,7 @@ import (
 	"hash/crc32"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -238,4 +239,58 @@ func TestSelectFiles(t *testing.T) {
 	offset = int64(1)
 	_, _, err = w.selectFiles(names, offset)
 	assert.Error(t, err)
+}
+
+func TestCleanWal(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "wal_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create a Wal instance
+	w := &Wal{
+		dir: tmpDir,
+	}
+
+	// Create some test segment files
+	segmentFiles := []string{
+		"segment_1.wal",
+		"segment_2.wal",
+		"segment_3.wal",
+		"segment_4.wal",
+		"segment_5.wal",
+	}
+	for _, file := range segmentFiles {
+		fileName := filepath.Join(tmpDir, file)
+		_, err := os.Create(fileName)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Set the offset and expected sequence number
+	offset := int64(3)
+	expectedSeq := int64(3)
+
+	// Call the CleanWal method
+	err = w.CleanWal(offset)
+	assert.NoError(t, err)
+
+	// Verify that the segment files with sequence numbers less than the expected sequence number are deleted
+	for _, file := range segmentFiles {
+		var segNo int64
+		_, err := fmt.Sscanf(file, "segment_%d.wal", &segNo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if segNo < expectedSeq {
+			_, err := os.Stat(filepath.Join(tmpDir, file))
+			assert.True(t, os.IsNotExist(err))
+		} else {
+			_, err := os.Stat(filepath.Join(tmpDir, file))
+			assert.NoError(t, err)
+		}
+	}
 }
