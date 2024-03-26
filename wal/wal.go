@@ -10,8 +10,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 
 	"distributed-learning-lab/util/log"
+
+	"golang.org/x/sys/unix"
 )
 
 // WAL接口
@@ -82,9 +85,11 @@ func (r *record) Marshal() ([]byte, error) {
 
 // 优化
 // TODO:
-// 1. 文件锁定
+// 1. 文件锁定, 写加锁， 读不加锁
 // 2. 存储优化， 写入的时候，按页写入， 能防止不完整的写入，并且减少磁盘碎片
 // 3. 写入的时候保证一帧的数据是8字节或4字节的倍数， 以便于提高性能， 防止数据撕裂
+// 4. wal 文件预分配空间, 可以减少磁盘碎片，因为可以分配连续的存储空间同时也可以提高读写性能。  而且可以提早暴露问题，预防空间不足
+// 5. 为了保证创建文件的原子性，可以先创建一个临时文件，然后重命名，这样可以保证文件的原子性, 同时别忘了flush文件的父目录
 
 // 质量要求
 type Wal struct {
@@ -108,10 +113,34 @@ func CreateWal(dir string, segmentSize int64) (*Wal, error) {
 		crcTable:       crc32.MakeTable(crc32.Castagnoli),
 		maxSegmentSize: segmentSize,
 	}
+
+	if _, err := os.Stat(dir); err == nil {
+		os.RemoveAll(dir)
+	}
+	tmpDir := fmt.Sprintf("%s.%s", dir, "tmp")
+	if err := os.Mkdir(tmpDir, 0o755); err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmpDir)
+
 	// TODO: 这里需要从文件索引恢复totalOffset
 	if err := w.OpenSegment(); err != nil {
 		return nil, err
 	}
+	// 预分配
+	err := syscall.Fallocate(int(w.file.Fd()), 0, 0, segmentSize)
+	if err != nil {
+		return nil, err
+	}
+
+	if os.RemoveAll(w.dir) != nil {
+		return nil, err
+	}
+
+	if os.Rename(tmpDir, w.dir) != nil {
+		return nil, err
+	}
+	// 同步w.dir父目录
 
 	return w, nil
 }
@@ -326,6 +355,25 @@ func (w *Wal) OpenSegment() error {
 	sn := w.getSegmentName()
 	f, err := os.OpenFile(sn, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
+		return err
+	}
+	// 锁文件
+	// flock锁与进程相关
+	// if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+	// 	return err
+	// }
+	// fcntl锁与线程相关
+	flock := syscall.Flock_t{
+		Start:  0,
+		Len:    0,
+		Pid:    int32(os.Getpid()),
+		Type:   unix.F_WRLCK,
+		Whence: io.SeekStart,
+	}
+	// 这个系统调用必须得系统支持才行
+	err = syscall.FcntlFlock(f.Fd(), unix.F_OFD_SETLKW, &flock)
+	if err != nil {
+		f.Close()
 		return err
 	}
 	log.Debugf("open file: %s successfully", sn)
