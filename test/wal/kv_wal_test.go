@@ -56,10 +56,14 @@ type KVStore struct {
 }
 
 func NewKvStore(dir string) (*KVStore, error) {
-	kv := &KVStore{
-		wal: wal.CreateWal(dir),
+	w, err := wal.CreateWal(dir, 512)
+	if err != nil {
+		return nil, err
 	}
-	err := kv.applyLog()
+	kv := &KVStore{
+		wal: w,
+	}
+	err = kv.applyLog()
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +75,7 @@ func (kv *KVStore) Stop() error {
 }
 
 func (kv *KVStore) applyLog() error {
-	entities, err := kv.wal.ReadAll()
+	entities, err := kv.wal.ReadAll(0)
 	if err != nil {
 		log.Errorf("read all failed: %v", err)
 		return err
@@ -102,7 +106,7 @@ func (kv *KVStore) appendLog(key, value string, cmdtype int) error {
 	if err != nil {
 		return err
 	}
-	return kv.wal.Save([][]byte{data})
+	return kv.wal.Write([][]byte{data})
 }
 
 func (kv *KVStore) Get(key string) string {

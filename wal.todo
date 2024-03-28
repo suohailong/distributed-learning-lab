@@ -75,20 +75,22 @@
           "content": "用文件锁改造wal",
           "id": 1711380945447,
           "level": "default",
-          "done": false,
+          "done": true,
           "start": 1711380945447,
-          "date": "1711382400,1711468799"
+          "date": "1711382400,1711468799",
+          "focus": false,
+          "end": 1711553000136
         }
       },
       {
-        "key": 1711381012598,
+        "key": 1711553011593,
         "children": [],
         "todo": {
-          "content": "写入优化（包括按页写入和字节对齐）",
-          "id": 1711381012598,
+          "content": "leader and follower",
+          "id": 1711553011593,
           "level": "default",
           "done": false,
-          "start": 1711381012598
+          "start": 1711553011593
         }
       }
     ],
@@ -108,6 +110,6 @@
     "showEndTime": false,
     "simpleMode": false,
     "lang": "zh-cn",
-    "version": "1711381069788"
+    "version": "1711553614373"
   }
 }

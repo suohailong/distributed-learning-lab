@@ -18,24 +18,16 @@ import (
 )
 
 // WAL接口
+// WAL (Write-Ahead Log) interface represents a log that allows writing and reading data.
 type WAL interface {
-	// 写入数据
-	Save(entities [][]byte) error
+	// Save writes the given entities to the log.
+	Write(entities [][]byte) error
 
-	// 读取数据
-	Read(offset int64, length int) ([]byte, error)
+	// ReadAll reads all the data from the log.
+	ReadAll(offset int64) ([][]byte, error)
 
-	// 读取所有数据
-	ReadAll() ([]byte, error)
-
-	// 同步WAL日志到磁盘
-	Sync() error
-
-	// 获取最新LSN
-	GetLastLSN() int64
-
-	// 获取最近一次检查点的LSN
-	GetCheckpointLSN() int64
+	// CleanWal cleans the log starting from the specified offset.
+	CleanWal(offset int64) error
 }
 
 var (
@@ -84,12 +76,13 @@ func (r *record) Marshal() ([]byte, error) {
 // Wal 日志低于低水位线的可以删掉, 低水位就是一个阈值可以是一个索引，也可以是一个时间值
 
 // 优化
-// TODO:
 // 1. 文件锁定, 写加锁， 读不加锁
-// 2. 存储优化， 写入的时候，按页写入， 能防止不完整的写入，并且减少磁盘碎片
-// 3. 写入的时候保证一帧的数据是8字节或4字节的倍数， 以便于提高性能， 防止数据撕裂
+// 2. 为了保证创建文件的原子性，可以先创建一个临时文件，然后重命名，这样可以保证文件的原子性, 同时别忘了flush文件的父目录
+// TODO:
+// 3. 每一条数据在写入的时候保证数据是8字节或4字节的倍数， 以便于提高性能， 防止数据撕裂.
+// 每一条的数据先写入到一个缓存区中， 缓存区是页的整数倍，当缓存区的数据够了设置的水位刷新到磁盘，
+// 超出部分会被写入到缓冲区等待下次满
 // 4. wal 文件预分配空间, 可以减少磁盘碎片，因为可以分配连续的存储空间同时也可以提高读写性能。  而且可以提早暴露问题，预防空间不足
-// 5. 为了保证创建文件的原子性，可以先创建一个临时文件，然后重命名，这样可以保证文件的原子性, 同时别忘了flush文件的父目录
 
 // 质量要求
 type Wal struct {
@@ -124,20 +117,28 @@ func CreateWal(dir string, segmentSize int64) (*Wal, error) {
 	defer os.RemoveAll(tmpDir)
 
 	// TODO: 这里需要从文件索引恢复totalOffset
-	if err := w.OpenSegment(); err != nil {
-		return nil, err
-	}
-	// 预分配
-	err := syscall.Fallocate(int(w.file.Fd()), 0, 0, segmentSize)
-	if err != nil {
+	if err := w.OpenSegment(tmpDir); err != nil {
 		return nil, err
 	}
 
-	if os.RemoveAll(w.dir) != nil {
+	// if _, err := w.file.Seek(0, io.SeekEnd); err != nil {
+	// 	return nil, err
+	// }
+	// // 预分配
+	// err := syscall.Fallocate(int(w.file.Fd()), 0, 0, segmentSize)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// if _, err := w.file.Seek(0, io.SeekStart); err != nil {
+	// 	return nil, err
+	// }
+
+	if err := os.RemoveAll(w.dir); err != nil {
 		return nil, err
 	}
 
-	if os.Rename(tmpDir, w.dir) != nil {
+	if err := os.Rename(tmpDir, w.dir); err != nil {
 		return nil, err
 	}
 	// 同步w.dir父目录
@@ -312,7 +313,7 @@ func (w *Wal) sync() error {
 }
 
 // TEST:
-func (w *Wal) Save(entities [][]byte) error {
+func (w *Wal) Write(entities [][]byte) error {
 	if len(entities) == 0 {
 		return nil
 	}
@@ -347,12 +348,12 @@ func (w *Wal) Save(entities [][]byte) error {
 	return w.sync()
 }
 
-func (w *Wal) getSegmentName() string {
-	return fmt.Sprintf("%s/segment_%d.wal", w.dir, w.totalOffset)
+func (w *Wal) getSegmentName(dir string) string {
+	return fmt.Sprintf("%s/segment_%d.wal", dir, w.totalOffset)
 }
 
-func (w *Wal) OpenSegment() error {
-	sn := w.getSegmentName()
+func (w *Wal) OpenSegment(dir string) error {
+	sn := w.getSegmentName(dir)
 	f, err := os.OpenFile(sn, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return err
@@ -364,11 +365,10 @@ func (w *Wal) OpenSegment() error {
 	// }
 	// fcntl锁与线程相关
 	flock := syscall.Flock_t{
+		Type:   syscall.F_WRLCK,
+		Whence: int16(io.SeekStart),
 		Start:  0,
 		Len:    0,
-		Pid:    int32(os.Getpid()),
-		Type:   unix.F_WRLCK,
-		Whence: io.SeekStart,
 	}
 	// 这个系统调用必须得系统支持才行
 	err = syscall.FcntlFlock(f.Fd(), unix.F_OFD_SETLKW, &flock)
@@ -386,7 +386,6 @@ func (w *Wal) OpenSegment() error {
 func (w *Wal) maybeRoll() error {
 	// FIXME: 这里有个问题， w.writeOffset是实际写入的大小(包含了crc和数据长度), maxSegmentSize是实际数据的大小(不包含crc和数据长度)
 	curoff, err := w.file.Seek(0, io.SeekCurrent)
-	fmt.Println(curoff)
 	if err != nil {
 		return err
 	}
@@ -395,7 +394,6 @@ func (w *Wal) maybeRoll() error {
 		if err != nil {
 			return err
 		}
-		// fmt.Println(curoff, w.maxSegmentSize)
 		err = w.file.Truncate(currOff)
 		if err != nil {
 			return err
@@ -407,7 +405,7 @@ func (w *Wal) maybeRoll() error {
 			return err
 		}
 
-		err = w.OpenSegment()
+		err = w.OpenSegment(w.dir)
 		if err != nil {
 			log.Errorf("")
 			return err

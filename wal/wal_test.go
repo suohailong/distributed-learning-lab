@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSave(t *testing.T) {
+func TestWrite(t *testing.T) {
 	// Create a temporary file for testing
 	tmpfile, err := os.CreateTemp("testdata", "wal_test")
 	if err != nil {
@@ -27,7 +27,7 @@ func TestSave(t *testing.T) {
 	}
 
 	// Test case 1: Save empty entities
-	err = w.Save(nil)
+	err = w.Write(nil)
 	assert.NoError(t, err)
 
 	// Test case 2: Save non-empty entities
@@ -36,7 +36,7 @@ func TestSave(t *testing.T) {
 		[]byte("entity22"),
 		[]byte("entity333"),
 	}
-	err = w.Save(entities)
+	err = w.Write(entities)
 	assert.NoError(t, err)
 
 	// Verify the contents of the file
@@ -84,7 +84,7 @@ func TestReadRecord(t *testing.T) {
 	// Write test data to the file
 	testData := []byte("test data")
 
-	err = w.Save([][]byte{testData})
+	err = w.Write([][]byte{testData})
 	assert.NoError(t, err)
 
 	w.file.Seek(0, 0)
@@ -111,7 +111,7 @@ func TestReadAll(t *testing.T) {
 		[]byte("entity22"),
 		[]byte("entity333"),
 	}
-	err = w.Save(entities)
+	err = w.Write(entities)
 	assert.NoError(t, err)
 
 	offsetMatrix := []int64{0, 19, 39, 60}
@@ -157,7 +157,7 @@ func TestMaybeRoll(t *testing.T) {
 		entities = append(entities, c)
 	}
 
-	err = w.Save(entities)
+	err = w.Write(entities)
 	assert.NoError(t, err)
 
 	// 验证文件是否被截断并打开了新的文件
@@ -207,6 +207,7 @@ func TestSelectFiles(t *testing.T) {
 	w := &Wal{
 		dir: "testdata",
 	}
+	defer os.RemoveAll("testdata")
 
 	// Test case 1: offset < 0
 	names := []string{"testdata/segment_1.wal", "testdata/segment_5.wal", "testdata/segment_9.wal"}
