@@ -84,9 +84,32 @@
       },
       {
         "key": 1711553011593,
-        "children": [],
+        "children": [
+          {
+            "key": 1712074417306,
+            "children": [],
+            "todo": {
+              "content": "raft选举",
+              "id": 1712074417306,
+              "level": "default",
+              "done": false,
+              "start": 1712074417306
+            }
+          },
+          {
+            "key": 1712074435611,
+            "children": [],
+            "todo": {
+              "content": "利用etcd外部进行外部选举",
+              "id": 1712074435611,
+              "level": "default",
+              "done": false,
+              "start": 1712074435611
+            }
+          }
+        ],
         "todo": {
-          "content": "leader and follower",
+          "content": "leader and foller",
           "id": 1711553011593,
           "level": "default",
           "done": false,
@@ -97,7 +120,9 @@
     "expandKeys": [
       1710689398897,
       1710689637416,
-      1711380945447
+      1711380945447,
+      1711553011593,
+      1712074417306
     ],
     "schema": "https://github.com/Saber2pr/vsc-ext-todolist/blob/master/src/api/type.ts#L3",
     "add_mode": "bottom",
@@ -110,6 +135,6 @@
     "showEndTime": false,
     "simpleMode": false,
     "lang": "zh-cn",
-    "version": "1711553614373"
+    "version": "1712074456493"
   }
 }
