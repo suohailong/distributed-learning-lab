@@ -1,6 +1,12 @@
 package log
 
-import "github.com/sirupsen/logrus"
+import (
+	"github.com/sirupsen/logrus"
+)
+
+func init() {
+	logrus.SetLevel(logrus.DebugLevel)
+}
 
 func Debug(args ...interface{}) {
 	logrus.Debug(args...)

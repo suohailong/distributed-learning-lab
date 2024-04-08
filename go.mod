@@ -2,8 +2,6 @@ module distributed-learning-lab
 
 go 1.21
 
-toolchain go1.21.5
-
 require (
 	github.com/cch123/supermonkey v1.0.1
 	github.com/dgraph-io/badger/v3 v3.2103.5
