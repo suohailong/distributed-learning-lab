@@ -36,11 +36,13 @@ type Raft struct {
 	Id uint64
 	sync.Mutex
 	*RaftState
-	State           int
-	Msgs            chan *raftpb.Message
-	TimeOut         int
-	electionElapsed int
-	Prs             map[uint64]*Node
+	State            int
+	Msgs             chan *raftpb.Message
+	electionTimeout  int
+	electionElapsed  int
+	heartbeatElapsed int
+	heartbeatTimeout int
+	Prs              map[uint64]*Node
 
 	// 记录我投票的任期号
 	voteTerm uint64
@@ -52,11 +54,12 @@ type Raft struct {
 	votePrs map[uint64]bool
 }
 
-func NewRaft(id uint64, timeout int, prs []uint64) *Raft {
+func NewRaft(id uint64, elecTimeout, heartbeatTimeout int, prs []uint64) *Raft {
 	r := &Raft{
-		Id:      id,
-		TimeOut: timeout,
-		Msgs:    make(chan *raftpb.Message, 10),
+		Id:               id,
+		electionTimeout:  elecTimeout,
+		heartbeatTimeout: heartbeatTimeout,
+		Msgs:             make(chan *raftpb.Message, 10),
 		RaftState: &RaftState{
 			Term: 0,
 		},
@@ -80,12 +83,18 @@ func (r *Raft) Tick() {
 	switch r.State {
 	case LEADER:
 		// TODO: 发送心跳
-		log.Debugf("node: %d, send heart beat", r.Id)
+		r.heartbeatElapsed++
+		if r.heartbeatElapsed >= r.heartbeatTimeout {
+			log.Debugf("node: %d, send heartbeat, heartbeatElapsed: %d, heartbeatTimout: %d", r.Id, r.heartbeatElapsed, r.heartbeatTimeout)
+			r.Step(&raftpb.Message{
+				Type: raftpb.MsgBeat,
+			})
+		}
+
 	default:
 		r.electionElapsed++
-		log.Debugf("node: %d, %d", r.Id, r.electionElapsed)
-		if r.electionElapsed >= r.TimeOut {
-			log.Debugf("node: %d, timeout, electionElapsed: %d, timeout: %d", r.Id, r.electionElapsed, r.TimeOut)
+		if r.electionElapsed >= r.electionTimeout {
+			log.Debugf("node: %d, timeout, electionElapsed: %d, timeout: %d", r.Id, r.electionElapsed, r.electionTimeout)
 			r.Step(&raftpb.Message{
 				Type: raftpb.MsgHup,
 			})
@@ -104,9 +113,44 @@ func (r *Raft) Step(m *raftpb.Message) error {
 		r.handleVote(m)
 	case raftpb.MsgVoteResp:
 		r.handleVoteResponse(m)
+	case raftpb.MsgBeat:
+		r.handleMsgBeat()
+	case raftpb.MsgHeartbeat:
+		r.handleMsgHeartbeat(m)
+	case raftpb.MsgHeartbeatResp:
+		r.handleHeartbeatResponse(m)
 	}
 
 	return nil
+}
+
+func (r *Raft) handleHeartbeatResponse(m *raftpb.Message) {
+	log.Debugf("node %d receive heartbeat response message from node %d", r.Id, m.From)
+}
+
+func (r *Raft) handleMsgHeartbeat(m *raftpb.Message) {
+	log.Debugf("node %d receive heartbeat message from node %d", r.Id, m.From)
+	r.electionElapsed = 0
+	r.send(&raftpb.Message{
+		Type: raftpb.MsgHeartbeatResp,
+		To:   m.From,
+		From: r.Id,
+	})
+}
+
+func (r *Raft) handleMsgBeat() {
+	// r.electionElapsed = 0
+	for _, node := range r.Prs {
+		if node.Id == r.Id {
+			continue
+		}
+		r.send(&raftpb.Message{
+			From: r.Id,
+			Term: r.Term,
+			To:   node.Id,
+			Type: raftpb.MsgHeartbeat,
+		})
+	}
 }
 
 func (r *Raft) handleVoteResponse(m *raftpb.Message) {
@@ -134,6 +178,9 @@ func (r *Raft) handleVote(m *raftpb.Message) {
 			To:   m.From,
 			Type: raftpb.MsgVoteResp,
 		})
+		r.voteTerm = m.Term
+		r.voteId = m.From
+		r.Term = m.Term
 		r.becomeFlowwer()
 		return
 	} else if m.Term == r.Term {
@@ -148,6 +195,9 @@ func (r *Raft) handleVote(m *raftpb.Message) {
 					Type: raftpb.MsgVoteResp,
 				})
 			}
+			r.voteTerm = m.Term
+			r.voteId = m.From
+			r.Term = m.Term
 			r.becomeFlowwer()
 			return
 		} else {
@@ -167,6 +217,9 @@ func (r *Raft) handleVote(m *raftpb.Message) {
 
 func (r *Raft) handleHub() {
 	log.Debugf("node %d start campaign", r.Id)
+	if r.State == LEADER {
+		return
+	}
 	r.becomeCandidate()
 	for _, node := range r.Prs {
 		if node.Id == r.Id {
