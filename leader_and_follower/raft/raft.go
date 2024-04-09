@@ -60,9 +60,10 @@ func NewRaft(id uint64, timeout int, prs []uint64) *Raft {
 		RaftState: &RaftState{
 			Term: 0,
 		},
-		Prs:     make(map[uint64]*Node),
-		votePrs: make(map[uint64]bool),
-		State:   FOLLOWER,
+		Prs:             make(map[uint64]*Node),
+		votePrs:         make(map[uint64]bool),
+		State:           FOLLOWER,
+		electionElapsed: 0,
 	}
 
 	for _, pr := range prs {
@@ -79,9 +80,12 @@ func (r *Raft) Tick() {
 	switch r.State {
 	case LEADER:
 		// TODO: 发送心跳
+		log.Debugf("node: %d, send heart beat", r.Id)
 	default:
 		r.electionElapsed++
+		log.Debugf("node: %d, %d", r.Id, r.electionElapsed)
 		if r.electionElapsed >= r.TimeOut {
+			log.Debugf("node: %d, timeout, electionElapsed: %d, timeout: %d", r.Id, r.electionElapsed, r.TimeOut)
 			r.Step(&raftpb.Message{
 				Type: raftpb.MsgHup,
 			})
@@ -131,6 +135,7 @@ func (r *Raft) handleVote(m *raftpb.Message) {
 			Type: raftpb.MsgVoteResp,
 		})
 		r.becomeFlowwer()
+		return
 	} else if m.Term == r.Term {
 		if r.voteTerm == m.Term {
 			// 已经给当前任期投过票, 而且节点也是同一个
@@ -144,6 +149,7 @@ func (r *Raft) handleVote(m *raftpb.Message) {
 				})
 			}
 			r.becomeFlowwer()
+			return
 		} else {
 			// 如果没给当前任期投过票， 比较日志
 			// 日志比较新， 投票
@@ -167,34 +173,31 @@ func (r *Raft) handleHub() {
 			continue
 		}
 		r.send(&raftpb.Message{
+			From: r.Id,
 			Term: r.Term,
 			To:   node.Id,
 			Type: raftpb.MsgVote,
 		})
-
 	}
 }
 
 func (r *Raft) becomeLeader() {
-	r.Lock()
-	defer r.Unlock()
 	r.State = LEADER
-	log.Debugf("node %d become leader", r.Id)
+	r.electionElapsed = 0
+	log.Debugf("node %d become leader, electionElapsed: %d", r.Id, r.electionElapsed)
 }
 
 func (r *Raft) becomeCandidate() {
-	r.Lock()
-	defer r.Unlock()
 	r.Term++
 	r.State = CADIDATE
-	log.Debugf("node %d become candidate", r.Id)
+	r.electionElapsed = 0
+	log.Debugf("node %d become candidate, electionElapsed: %d", r.Id, r.electionElapsed)
 }
 
 func (r *Raft) becomeFlowwer() {
-	r.Lock()
-	defer r.Unlock()
 	r.State = FOLLOWER
-	log.Debugf("node %d become follower", r.Id)
+	r.electionElapsed = 0
+	log.Debugf("node %d become flowwer, electionElapsed: %d", r.Id, r.electionElapsed)
 }
 
 func (r *Raft) send(m *raftpb.Message) {

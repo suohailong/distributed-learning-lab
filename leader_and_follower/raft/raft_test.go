@@ -26,7 +26,7 @@ func (c *Cluster) watchNode(node *Raft) {
 		select {
 		case msg := <-node.GetMsgs():
 			for _, n := range c.nodes {
-				if n.Id != node.Id {
+				if n.Id == msg.To {
 					n.Step(msg)
 				}
 			}
@@ -57,11 +57,11 @@ func TestCampaignScene(t *testing.T) {
 	// 发起者
 	// 发起者收到绝大多数投票后，变为leader
 	cluster := NewCluster()
-	A := NewRaft(1, 1, []uint64{1, 2, 3})
+	A := NewRaft(1, 5, []uint64{1, 2, 3})
 	cluster.AddNode(A)
-	B := NewRaft(2, 2, []uint64{1, 2, 3})
+	B := NewRaft(2, 7, []uint64{1, 2, 3})
 	cluster.AddNode(B)
-	C := NewRaft(3, 3, []uint64{1, 2, 3})
+	C := NewRaft(3, 8, []uint64{1, 2, 3})
 	cluster.AddNode(C)
 
 	time.Sleep(30 * time.Second)
