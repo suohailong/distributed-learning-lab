@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"math/rand"
 	"sync"
 
 	"distributed-learning-lab/util/log"
@@ -51,6 +52,7 @@ type Raft struct {
 
 	// 记录票数
 	voteNum int
+	// 记录我的谁给我投票
 	votePrs map[uint64]bool
 }
 
@@ -82,7 +84,6 @@ func NewRaft(id uint64, elecTimeout, heartbeatTimeout int, prs []uint64) *Raft {
 func (r *Raft) Tick() {
 	switch r.State {
 	case LEADER:
-		// TODO: 发送心跳
 		r.heartbeatElapsed++
 		if r.heartbeatElapsed >= r.heartbeatTimeout {
 			log.Debugf("node: %d, send heartbeat, heartbeatElapsed: %d, heartbeatTimout: %d", r.Id, r.heartbeatElapsed, r.heartbeatTimeout)
@@ -93,6 +94,7 @@ func (r *Raft) Tick() {
 
 	default:
 		r.electionElapsed++
+		// 这里可能会发起多起选举， 下次选举开始之前要把上次选举的中间结果清楚， 比如本机投给的节点记录等
 		if r.electionElapsed >= r.electionTimeout {
 			log.Debugf("node: %d, timeout, electionElapsed: %d, timeout: %d", r.Id, r.electionElapsed, r.electionTimeout)
 			r.Step(&raftpb.Message{
@@ -106,10 +108,8 @@ func (r *Raft) Tick() {
 func (r *Raft) Step(m *raftpb.Message) error {
 	switch m.Type {
 	case raftpb.MsgHup:
-		// TODO: 开始选举
 		r.handleHub()
 	case raftpb.MsgVote:
-		// TODO: 处理投票请求
 		r.handleVote(m)
 	case raftpb.MsgVoteResp:
 		r.handleVoteResponse(m)
@@ -125,11 +125,11 @@ func (r *Raft) Step(m *raftpb.Message) error {
 }
 
 func (r *Raft) handleHeartbeatResponse(m *raftpb.Message) {
-	log.Debugf("node %d receive heartbeat response message from node %d", r.Id, m.From)
+	log.Debugf("node %d receive heartbeat response message from node %d, term: %d", r.Id, m.From, m.Term)
 }
 
 func (r *Raft) handleMsgHeartbeat(m *raftpb.Message) {
-	log.Debugf("node %d receive heartbeat message from node %d", r.Id, m.From)
+	log.Debugf("node %d receive heartbeat message from node %d, term: %d, myterm: %d", r.Id, m.From, m.Term, r.Term)
 	r.electionElapsed = 0
 	r.send(&raftpb.Message{
 		Type: raftpb.MsgHeartbeatResp,
@@ -154,7 +154,10 @@ func (r *Raft) handleMsgBeat() {
 }
 
 func (r *Raft) handleVoteResponse(m *raftpb.Message) {
-	log.Debugf("node %d receive vote response message from node %d", r.Id, m.From)
+	log.Debugf("node %d receive vote response message from node %d, term: %d", r.Id, m.From, m.Term)
+	if m.Term < r.Term {
+		return
+	}
 	if m.Reject {
 		return
 	}
@@ -169,19 +172,18 @@ func (r *Raft) handleVoteResponse(m *raftpb.Message) {
 }
 
 func (r *Raft) handleVote(m *raftpb.Message) {
-	log.Debugf("node %d receive vote message from node %d", r.Id, m.From)
+	log.Debugf("node %d receive vote message from node %d, term: %d", r.Id, m.From, m.Term)
 	if r.Term < m.Term {
 		// 拒绝
 		r.send(&raftpb.Message{
-			Term: r.Term,
+			Term: m.Term,
 			From: r.Id,
 			To:   m.From,
 			Type: raftpb.MsgVoteResp,
 		})
 		r.voteTerm = m.Term
 		r.voteId = m.From
-		r.Term = m.Term
-		r.becomeFlowwer()
+		r.becomeFlowwer(m.Term)
 		return
 	} else if m.Term == r.Term {
 		if r.voteTerm == m.Term {
@@ -189,7 +191,7 @@ func (r *Raft) handleVote(m *raftpb.Message) {
 			if r.voteId == m.From {
 				log.Debugf("node %d already vote to node %d", r.Id, m.From)
 				r.send(&raftpb.Message{
-					Term: r.Term,
+					Term: m.Term,
 					From: r.Id,
 					To:   m.From,
 					Type: raftpb.MsgVoteResp,
@@ -197,15 +199,14 @@ func (r *Raft) handleVote(m *raftpb.Message) {
 			}
 			r.voteTerm = m.Term
 			r.voteId = m.From
-			r.Term = m.Term
-			r.becomeFlowwer()
+			r.becomeFlowwer(m.Term)
 			return
 		} else {
 			// 如果没给当前任期投过票， 比较日志
 			// 日志比较新， 投票
 		}
 	}
-	log.Debugf("node %d reject vote to node %d", r.Id, m.From)
+	log.Debugf("node %d reject vote to node %d, term: %d", r.Id, m.From, m.Term)
 	r.send(&raftpb.Message{
 		Term:   r.Term,
 		From:   r.Id,
@@ -216,10 +217,10 @@ func (r *Raft) handleVote(m *raftpb.Message) {
 }
 
 func (r *Raft) handleHub() {
-	log.Debugf("node %d start campaign", r.Id)
 	if r.State == LEADER {
 		return
 	}
+	log.Debugf("node %d start campaign", r.Id)
 	r.becomeCandidate()
 	for _, node := range r.Prs {
 		if node.Id == r.Id {
@@ -237,24 +238,49 @@ func (r *Raft) handleHub() {
 func (r *Raft) becomeLeader() {
 	r.State = LEADER
 	r.electionElapsed = 0
-	log.Debugf("node %d become leader, electionElapsed: %d", r.Id, r.electionElapsed)
+	r.heartbeatElapsed = 0
+
+	randomInt := rand.Intn(r.electionTimeout)
+	r.electionTimeout = r.electionTimeout + randomInt
+	log.Debugf("node %d become leader, electionElapsed: %d, term: %d", r.Id, r.electionElapsed, r.Term)
 }
 
 func (r *Raft) becomeCandidate() {
+	r.voteNum = 0
+	r.votePrs = make(map[uint64]bool)
+
 	r.Term++
+
+	r.voteId = r.Id
+	r.voteNum++
+	r.voteTerm = r.Term
+	r.votePrs[r.Id] = true
+
 	r.State = CADIDATE
 	r.electionElapsed = 0
-	log.Debugf("node %d become candidate, electionElapsed: %d", r.Id, r.electionElapsed)
+	r.heartbeatElapsed = 0
+
+	randomInt := rand.Intn(r.electionTimeout)
+	r.electionTimeout = r.electionTimeout + randomInt
+	log.Debugf("node %d become candidate, electionElapsed: %d, term: %d", r.Id, r.electionElapsed, r.Term)
 }
 
-func (r *Raft) becomeFlowwer() {
+func (r *Raft) becomeFlowwer(term uint64) {
+	r.Term = term
+
 	r.State = FOLLOWER
+	r.voteNum = 0
+	r.votePrs = make(map[uint64]bool)
+
 	r.electionElapsed = 0
-	log.Debugf("node %d become flowwer, electionElapsed: %d", r.Id, r.electionElapsed)
+	r.heartbeatElapsed = 0
+	randomInt := rand.Intn(r.electionTimeout)
+	r.electionTimeout = r.electionTimeout + randomInt
+	log.Debugf("node %d become flowwer, electionElapsed: %d: term: %d", r.Id, r.electionElapsed, r.Term)
 }
 
 func (r *Raft) send(m *raftpb.Message) {
-	log.Debugf("node %d send message to node %d, msgType: %v", r.Id, m.To, m.Type)
+	log.Debugf("node %d send message to node %d, msgType: %v, term: %d", r.Id, m.To, m.Type, m.Term)
 	r.Msgs <- m
 }
 
