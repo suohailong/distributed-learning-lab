@@ -2,71 +2,21 @@ package etcdleader
 
 import (
 	"context"
-	"fmt"
-	"log"
-	"sync"
-	"time"
 
-	clientv3 "go.etcd.io/etcd/client/v3"
+	"distributed-learning-lab/util/log"
+
 	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
-func Campaign() {
-	cli, err := clientv3.New(clientv3.Config{Endpoints: []string{"localhost:2380"}})
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer cli.Close()
+func Campaign(s *concurrency.Session, nodeId string) error {
+	log.Debugf("node: %s start election", nodeId)
 
-	// create two separate sessions for election competition
-	s1, err := concurrency.NewSession(cli)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer s1.Close()
-	e1 := concurrency.NewElection(s1, "/my-election/")
-
-	s2, err := concurrency.NewSession(cli)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer s2.Close()
-	e2 := concurrency.NewElection(s2, "/my-election/")
-
-	// create competing candidates, with e1 initially losing to e2
-	var wg sync.WaitGroup
-	wg.Add(2)
-	electc := make(chan *concurrency.Election, 2)
-	go func() {
-		defer wg.Done()
-		// delay candidacy so e2 wins first
-		time.Sleep(3 * time.Second)
-		if err := e1.Campaign(context.Background(), "e1"); err != nil {
-			log.Fatal(err)
-		}
-		electc <- e1
-	}()
-	go func() {
-		defer wg.Done()
-		if err := e2.Campaign(context.Background(), "e2"); err != nil {
-			log.Fatal(err)
-		}
-		electc <- e2
-	}()
-
-	cctx, cancel := context.WithCancel(context.TODO())
-	defer cancel()
-
-	e := <-electc
-	fmt.Println("completed first election with", string((<-e.Observe(cctx)).Kvs[0].Value))
-
-	// resign so next candidate can be elected
-	if err := e.Resign(context.TODO()); err != nil {
-		log.Fatal(err)
+	e1 := concurrency.NewElection(s, "/my-test-election")
+	if err := e1.Campaign(context.Background(), nodeId); err != nil {
+		log.Errorf("campaign failed, err: %v", err)
+		return err
 	}
 
-	e = <-electc
-	fmt.Println("completed second election with", string((<-e.Observe(cctx)).Kvs[0].Value))
-
-	wg.Wait()
+	log.Debugf("%s wins the election", nodeId)
+	return nil
 }
