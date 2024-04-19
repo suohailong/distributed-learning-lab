@@ -1,4 +1,4 @@
-package hash
+package consistent_hash
 
 import (
 	"crypto/sha256"
@@ -115,7 +115,6 @@ func (d *defaultConsistentHash) GetNodes(key string, count int) (nodeIDs []strin
 		nodeIDs = append(nodeIDs, nodeID)
 	}
 	return
-
 }
 
 func (d *defaultConsistentHash) searchInsertIndex(hash uint32) int {

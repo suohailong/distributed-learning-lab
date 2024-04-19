@@ -1,4 +1,4 @@
-package hash
+package consistent_hash
 
 import (
 	"fmt"
@@ -51,7 +51,6 @@ func (suite *ConsistentHashTestSuite) TestGetNodes() {
 }
 
 func (suite *ConsistentHashTestSuite) concurrencyOperation(fn func(nodeID string)) {
-
 	wg := sync.WaitGroup{}
 	wg.Add(5)
 	for i := 1; i <= 5; i++ {
