@@ -3,6 +3,8 @@ package distributelock
 import (
 	"context"
 	"errors"
+	"fmt"
+	"math"
 	"net"
 	"time"
 
@@ -35,22 +37,27 @@ type redisLock struct {
 
 func NewRedisLock(opts ...Options) Lock {
 	r := &redisLock{
-		ttl: defaultTTL,
+		ttl:         defaultTTL,
+		clientAddrs: "localhost:32479",
 	}
 	for _, o := range opts {
 		o(r)
 	}
+	r.re = redis.NewClient(&redis.Options{
+		Addr: r.clientAddrs,
+	})
 	return r
 }
 
 func (r *redisLock) TryLock(ctx context.Context, key, value string) (ok bool, err error) {
-	err = retry.Retry(ctx, func() error {
-		isOk, cmdErr := r.re.SetNX(ctx, key, value, r.ttl).Result()
-		if cmdErr != nil && errors.Is(cmdErr, &net.OpError{}) {
-			return cmdErr
+	retry.Retry(ctx, func() error {
+		ok, err = r.re.SetNX(ctx, key, value, r.ttl).Result()
+		if err != nil {
+			var netErr net.Error
+			if errors.As(err, &netErr) {
+				return err
+			}
 		}
-		ok = isOk
-		err = cmdErr
 		return nil
 	}, retry.Limit(3))
 
@@ -58,19 +65,20 @@ func (r *redisLock) TryLock(ctx context.Context, key, value string) (ok bool, er
 }
 
 func (r *redisLock) Lock(ctx context.Context, key, value string) (ok bool, err error) {
-	cmd := r.re.SetNX(ctx, key, value, r.ttl)
-	ok, err = cmd.Result()
-	if err != nil {
-		return ok, err
-	}
-	for !ok {
-		cmd := r.re.SetNX(ctx, key, value, r.ttl)
-		ok, err = cmd.Result()
+	retry.Retry(ctx, func() error {
+		ok, err = r.re.SetNX(ctx, key, value, r.ttl).Result()
 		if err != nil {
-			return ok, err
+			var netErr net.Error
+			if errors.As(err, &netErr) {
+				return err
+			}
 		}
-	}
-	return ok, nil
+		if !ok && err == nil {
+			return fmt.Errorf("failed to acquire lock")
+		}
+		return nil
+	}, retry.Limit(math.MaxInt64))
+	return ok, err
 }
 
 func (r *redisLock) UnLock(ctx context.Context, key, value string) (bool, error) {

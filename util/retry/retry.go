@@ -42,19 +42,21 @@ func Retry(ctx context.Context, fn Process, opts ...Optinon) error {
 		o.apply(&options)
 	}
 
+	var lastErr error = nil
 	for attempt := 0; attempt < options.maxRetryCount; attempt++ {
 		err := fn()
 		if err != nil {
-			if attempt < options.maxRetryCount {
-				// 等待时间
-				sleep(ctx, options.backoff(attempt))
-				continue
-			} else {
-				return err
+			sErr := sleep(ctx, options.backoff(attempt))
+			lastErr = err
+			if sErr != nil {
+				break
 			}
+			continue
 		}
+		lastErr = nil
+		break
 	}
-	return nil
+	return lastErr
 }
 
 func retryBackOff(retry int) time.Duration {
