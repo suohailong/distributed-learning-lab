@@ -76,15 +76,15 @@ func (suite *DistributeLockSuite) TestTryLock() {
 	suite.Run("should acquire lock when it's not held", func() {
 		lockey, value := "mylock", "ip01"
 		defer func() {
-			_, err := suite.redis.Del(ctx, lockey).Result()
+			ok, err := suite.dl.UnLock(ctx, lockey, value)
+			suite.True(ok)
 			suite.NoError(err)
+			_, err = suite.redis.Get(ctx, lockey).Result()
+			suite.ErrorIs(err, redis.Nil)
 		}()
 		ok, err := suite.dl.TryLock(ctx, lockey, value)
 		suite.True(ok)
 		suite.NoError(err)
-		val, err := suite.redis.Get(ctx, lockey).Result()
-		suite.NoError(err)
-		suite.Equal(val, value)
 	})
 
 	suite.Run("should not acquire lock when it's already held", func() {
@@ -94,8 +94,11 @@ func (suite *DistributeLockSuite) TestTryLock() {
 		suite.True(ok)
 		suite.NoError(err)
 		defer func() {
-			_, err := suite.redis.Del(ctx, lockey).Result()
+			ok, err := suite.dl.UnLock(ctx, lockey, node1)
+			suite.True(ok)
 			suite.NoError(err)
+			_, err = suite.redis.Get(ctx, lockey).Result()
+			suite.ErrorIs(err, redis.Nil)
 		}()
 
 		node2 := "ip02"
@@ -126,10 +129,38 @@ func (suite *DistributeLockSuite) TestTryLock() {
 			distributelock.WithAddr("9.9.9.9:100"),
 			distributelock.WithLockTTl(3*time.Second),
 		)
+
 		locKey, lockVal := "mylock", "node1"
 		_, err := dl.TryLock(ctx, locKey, lockVal)
 		var netErr net.Error
 		suite.ErrorAs(err, &netErr)
+	})
+
+	suite.Run("locking the same process should succeed", func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		locKey, lockVal := "locktmp", "node1"
+		defer cancel()
+		defer func() {
+			ok, err := suite.dl.UnLock(ctx, locKey, lockVal)
+			suite.True(ok)
+			suite.NoError(err)
+			val, _ := suite.redis.Get(ctx, locKey).Result()
+			suite.Equal(lockVal, val)
+
+			ok, err = suite.dl.UnLock(ctx, locKey, lockVal)
+			suite.True(ok)
+			suite.NoError(err)
+			_, err = suite.redis.Get(ctx, locKey).Result()
+			suite.ErrorIs(err, redis.Nil)
+		}()
+		// Simulate a network error here
+		ok, err := suite.dl.TryLock(ctx, locKey, lockVal)
+		suite.True(ok)
+		suite.NoError(err)
+
+		ok, err = suite.dl.TryLock(ctx, locKey, lockVal)
+		suite.True(ok)
+		suite.NoError(err)
 	})
 
 	suite.Run("should handle concurrent lock attempts", func() {
