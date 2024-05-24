@@ -3,6 +3,7 @@ module distributed-learning-lab
 go 1.21
 
 require (
+	github.com/bwmarrin/snowflake v0.3.0
 	github.com/cch123/supermonkey v1.0.1
 	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/panjf2000/ants/v2 v2.7.4
