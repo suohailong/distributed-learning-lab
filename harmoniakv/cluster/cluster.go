@@ -2,11 +2,12 @@ package cluster
 
 import (
 	"crypto/sha256"
-	"distributed-learning-lab/harmoniakv/node"
 	"encoding/binary"
 	"sort"
 	"strconv"
 	"sync"
+
+	"distributed-learning-lab/harmoniakv/node"
 )
 
 /*
@@ -33,7 +34,7 @@ type Cluster interface {
 
 type defaultCluster struct {
 	sync.RWMutex
-	//当前node
+	// 当前node
 	currentNode *node.Node
 
 	vnodesMap map[uint32]*node.Node
