@@ -34,6 +34,11 @@ toc:
   - 判断成功率 >= 99.999% 
   - 当请求超出限制时，系统需要返回明确的错误码
   - 在高并发的场景下，系统需要保证请求统计的正确性，可允许一定的超出限制请求的统计
+- 可用性
+- 可维护性
+系统核心功能的恢复时间<=5分钟
+- 容错性
+
 
 
 
@@ -41,6 +46,22 @@ toc:
 ## 3. 系统架构设计
    ### 3.1 系统上下文图
    ### 3.2 总体架构图
+   ```mermaid
+   C4Context
+      title System Context diagram for Rate Limiter.
+      Enterprise_Boundary(b0, "System") {
+         Person(client, "Client") 
+         System_Boundary(b1, "distribute Rate Limiter system") {
+            Container(网关, "网关", "","接收用户请求")
+            Container(rule,"规则服务")
+            Container(ratelimiter,"限流服务")
+            Container(notify,"通知服务")
+
+            ContainerDb("","规则数据库")
+         }
+      }
+
+   ```
    ### 3.3 架构决策
 ## 4. 详细设计
    ### 4.1 模块设计
